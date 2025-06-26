@@ -1,6 +1,6 @@
-# inhlth-langgraph_chatbot
+# Inhlth-langgraph_chatbot
 
-dependencies: pip install -r requirements.txt
+Install Dependencies: pip install -r requirements.txt
 
-start command: python main.py
+Start Command: python main.py
 
