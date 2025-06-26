@@ -5,7 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
-
+dev-requirements.txt
 # Distribution / packaging
 .Python
 build/
@@ -126,7 +126,8 @@ celerybeat.pid
 
 # SageMath parsed files
 *.sage.py
-
+jupyter_notebooks/
+query_agent.ipynb
 # Environments
 .env
 .venv
