@@ -1,5 +1,6 @@
-# inhlth-langgraph_chatbot
+# Inhlth-langgraph_chatbot
 
-pip install -r requirements.txt
+Install Dependencies: pip install -r requirements.txt
 
-uvicorn main:app --host 0.0.0.0 --port 8000
+Start Command: python main.py
+
