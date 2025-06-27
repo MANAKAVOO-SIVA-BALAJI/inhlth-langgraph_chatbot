@@ -46,6 +46,9 @@ class ChatRequest(BaseModel):
             raise ValueError("Message cannot be empty")
         return v
 
+class session_list(BaseModel):
+    user_id: str = Field()
+
 
 logger = setup_logger()
 
@@ -69,6 +72,16 @@ async def log_requests(request: Request, call_next):
 async def process_normal_message(req: ChatRequest):
     """Process message for normal (non-streaming) response"""
     config = {"configurable": {"thread_id":req.session_id}} # req.session_id
+    # response = generate_chat_response(req, config)
+        
+    # return {
+    #     "session_id": req.session_id,
+    #     # "response": "This is a test response. Data request received successfully, but no real call was made.",#response,
+    #     "response":response,
+    #     "timestamp": req.timestamp,
+    #     "user_id": req.user_id,
+    #     "company_id": req.company_id
+    # }
 
     try:
         response = generate_chat_response(req, config)
@@ -84,7 +97,8 @@ async def process_normal_message(req: ChatRequest):
     except Exception as e:
         return {
             "session_id": req.session_id,
-            "response": f"Error: {str(e)}",
+            "response": "Sorry, I could not generate a response at this time. Please try again later.",
+            # "response": f"Error: {str(e)}",
             "timestamp": req.timestamp,
             "user_id": req.user_id,
             "company_id": req.company_id
@@ -152,6 +166,9 @@ async def health_check():
         }
     }
 
+# @app.get("/session_list")
+# async def session_list(session_req:session_list):
+#     return {"session_list": "session_list"}
 
 if __name__ == "__main__":
     import uvicorn 

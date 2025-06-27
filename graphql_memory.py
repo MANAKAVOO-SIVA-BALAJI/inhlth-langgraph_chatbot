@@ -59,52 +59,10 @@ class HasuraMemory():
                     deserialized.append(SystemMessage(content=msg["content"]))
                 elif msg.get("type") == "tool":
                     deserialized.append(ToolMessage(content=msg["content"], tool_call_id=msg.get("tool_call_id", "")))
+        print("deserialized return type: ",type(deserialized))
         return deserialized
 
-    # def save_messages(self,config: Dict[str, Any],messages: list,meta_data: Optional[Dict[str,Any]],task_id: Optional[str] = None) -> None:
-    #     """Store messages in Hasura"""
-    #     print(f"[SAVE_MESSAGES] Called with arguments:")
-    #     print(f"  config: {config}")
-    #     print(f"  messages: {messages}")
-    #     print(f"  task_id: {task_id}")
-        
-    #     thread_id = config.get("configurable", {}).get("thread_id", "unknown")
-    #     print(f"[SAVE_MESSAGES] Extracted - thread_id: {thread_id}")
-    #     graphql_query = """
-    #     mutation InsertCheckpoint($session_id: String, $step: Int, $node: String, $messages: jsonb, $metadata: jsonb) {
-    #         insert_chatmessages_one(object: {
-    #             session_id: $session_id,
-    #             step: $step,
-    #             node: $node,
-    #             messages: $messages,
-    #             metadata: $metadata
-    #         }) {
-    #             session_id
-    #         }
-    #     }
-    #     """
-
-    #     variables = {
-    #         "session_id": thread_id,
-    #         "step": meta_data.get("step", 0),
-    #         "node": meta_data.get("node", "unknown"),
-    #         "messages": self._safe_serialize(messages),
-    #         "metadata":meta_data or {}
-    #     }
-
-    #     try:
-    #         response = requests.post(self.hasura_url, json={"query": graphql_query, "variables": variables}, headers=self.headers)
-    #         response.raise_for_status()
-    #         print("[PUT] Success:", response.json())
-    #     except Exception as e:
-    #         print(f"[PUT] Error inserting checkpoint into Hasura: {e}")
-
-
-
-    #     # print(f"[SAVE_MESSAGES] Would store  messages to Hasura - Operation completed")
-
-
-    def save_messages(self, config: Dict[str, Any], messages: list, meta_data: Optional[Dict[str, Any]], task_id: Optional[str] = None) -> None:
+    def save_messages(self, config: Dict[str, Any], messages: list,nodes: list, task_id: Optional[str] = None) -> None:
         """Store multiple messages in Hasura, excluding tool-related messages"""
         print(f"[SAVE_MESSAGES] Called with arguments:")
         print(f"  config: {config}")
@@ -113,9 +71,8 @@ class HasuraMemory():
 
         thread_id = config.get("configurable", {}).get("thread_id", "unknown")
         step = 0
-        sender_type = "human"
 
-        print(f"[SAVE_MESSAGES] Extracted - thread_id: {thread_id}, step: {step}, node: {sender_type}")
+        print(f"[SAVE_MESSAGES] Extracted - thread_id: {thread_id}, step: {step}")
 
         graphql_query = """
         mutation InsertMultipleCheckpoints($objects: [chatmessages_insert_input!]!) {
@@ -124,7 +81,9 @@ class HasuraMemory():
             }
         }
         """
-
+        nodes = [node for node in nodes if node != "tool"]
+        nodes_i = 0
+        node="None"
         objects = []
         for msg in messages[::-1]:
             if isinstance(msg, ToolMessage): 
@@ -134,14 +93,23 @@ class HasuraMemory():
                 sender_type = "human"
             elif isinstance(msg, AIMessage):
                 sender_type = "ai"
+            if nodes_i < len(nodes):
+                node = nodes[nodes_i]
+            if node == "data_analyser":
+                sender_type = "final_response"
+            
+            meta_data = {"step": step, "node": node,"sender_type": sender_type}
             objects.append({
                 "session_id": thread_id,
                 "step": step,
+                "node": node,
                 "sender_type":sender_type,
                 "messages": serialized_msg,
                 "metadata": meta_data or {}
             })
             step += 1
+            nodes_i+=1
+            
 
         if not objects:
             print("[SAVE_MESSAGES] All messages were tool/tool_call; skipping insert.")
@@ -169,12 +137,12 @@ class HasuraMemory():
             print(f"  task_id: {task_id}")
             
             thread_id = config.get("configurable", {}).get("thread_id", "unknown")
-
             graphql_query = """ query MyQuery($thread_id: String) {
-                chatmessages(where: {session_id: {_eq: $thread_id}}) {
+                chatmessages(where: {session_id: {_eq: $thread_id}}, limit: 4) {
                     messages
                 }
-                } """
+                }
+                """
             
             variables= {
                 "thread_id": thread_id
