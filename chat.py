@@ -22,7 +22,6 @@ def generate_chat_response(chat_request,config: Dict[str, Any]):
 
     print("history:",type(history),history_length)
 
-    # hasura_memory.save_messages(config,message[0], meta_data,task_id="test_task_123")
     
     if not message:
         return "Error processing the request. Please provide a valid input."    
@@ -31,18 +30,16 @@ def generate_chat_response(chat_request,config: Dict[str, Any]):
         "history": history,
         "nodes":["human"]
     })
-    history_final = len(output["messages"])
+    # history_final = len(output["messages"])
 
-    meta_data = {"step": 1, "node": "final_response","sender_type": "Agent"}
+    # meta_data = {"step": 1, "node": "final_response","sender_type": "Agent"}
     print("Type:",type(output["messages"][-1]))
 
     print("nodes:",output["nodes"])
-    # hasura_memory.save_messages(config,output["messages"][-1],meta_data, task_id="test_task_123")
 
-    # store_messages = output["messages"][::-1][:history_final-history_length]
     store_messages = output["messages"]
     print("store_messages:",type(store_messages),len(store_messages),store_messages[0])
-    # hasura_memory.save_messages(config,store_messages,nodes=output["nodes"], task_id="test_task_123")
+    hasura_memory.save_messages(config,store_messages,nodes=output["nodes"], task_id="sample_task_id_123")
 
     # for i in store_messages:
     #     if not isinstance(i, ToolMessage):
