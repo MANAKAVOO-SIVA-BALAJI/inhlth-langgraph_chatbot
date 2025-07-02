@@ -2,10 +2,12 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+practise.doc
 # C extensions
+.env
 *.so
-dev-requirements.txt
+practise.py
+dev_requirements.txt
 # Distribution / packaging
 .Python
 build/
