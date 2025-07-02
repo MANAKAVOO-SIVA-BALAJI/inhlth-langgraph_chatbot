@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     APP_DEBUG: bool = Field(False, env="APP_DEBUG")
     LOG_LEVEL: str = Field("DEBUG", env="LOG_LEVEL")
 
+    # LangSmith settings
+    LANGCHAIN_TRACING_V2: str = Field("false", env="LANGCHAIN_TRACING_V2") 
+    LANGCHAIN_ENDPOINT: Optional[str] = Field(None, env="LANGCHAIN_ENDPOINT")
+    LANGCHAIN_API_KEY: Optional[str] = Field(None, env="LANGCHAIN_API_KEY")
+
     # Rate limiting
     RATE_LIMIT_PER_MINUTE: int = Field(60, env="RATE_LIMIT_PER_MINUTE")
     ALLOWED_ORIGINS: str
@@ -59,6 +64,8 @@ LOG_LEVEL = settings.LOG_LEVEL
 RATE_LIMIT_PER_MINUTE = settings.RATE_LIMIT_PER_MINUTE
 ALLOWED_ORIGINS = settings.ALLOWED_ORIGINS
 OPENAI_MODEL = settings.OPENAI_MODEL
-
+LANGCHAIN_TRACING_V2 = settings.LANGCHAIN_TRACING_V2
+LANGCHAIN_ENDPOINT = settings.LANGCHAIN_ENDPOINT
+LANGCHAIN_API_KEY = settings.LANGCHAIN_API_KEY
 
 

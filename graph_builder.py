@@ -1,11 +1,11 @@
 from nodes import AgentState, should_continue, data_analyser, intent_classify, intent_decision , llm
-from langgraph.graph import StateGraph, START,END
-from langchain_core.tools import Tool
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage,SystemMessage
-from langchain_community.tools.graphql.tool import GraphQLAPIWrapper
+from langgraph.graph import StateGraph, START,END # type: ignore
+from langchain_core.tools import Tool # type: ignore
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage,SystemMessage # type: ignore
+from langchain_community.tools.graphql.tool import GraphQLAPIWrapper # type: ignore
 from config import OPENAI_API_KEY,HASURA_GRAPHQL_URL,HASURA_ADMIN_SECRET,HASURA_ROLE
 from prompt import system_query_prompt_format
-
+from utils import store_datetime
 
 def build_graph(company_id,user_id):
     graphql_tool = GraphQLAPIWrapper(
@@ -34,7 +34,8 @@ def build_graph(company_id,user_id):
             response.content = f"Calling `{tool_name}` tool to process your request..."
         print("Call_llm: ",response.content)
         state["nodes"].append("call_llm")
-        return {"messages": state["messages"] + [response],"nodes":state["nodes"]}
+        state["time"].append(store_datetime())
+        return {"messages": state["messages"] + [response],"nodes":state["nodes"],"time":state["time"]}
 
     def call_tool(state: AgentState):
         last_ai_message = state["messages"][-1]

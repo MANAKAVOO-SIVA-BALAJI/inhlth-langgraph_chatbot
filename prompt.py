@@ -1,8 +1,4 @@
-def get_current_datetime():
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    tz = ZoneInfo("Asia/Kolkata")
-    return datetime.now(tz).strftime("%Y-%m-%d %I:%M %p")
+from utils import get_current_datetime
 
 System_query_prompt_template ="""
 You are a GraphQL Query and Data Retrieval Expert integrated with Hasura and a GraphQL execution tool.
@@ -68,7 +64,7 @@ Map these phrases to fields/filters:
 - "pending", "waiting" → `status: {{ _eq: "PA" }}`
 - "approved", "cleared" → `status: {{ _eq: "AA" }}`
 - "track", "where is my order", "follow" → exclude `CMP`, `REJ`, `CAL`
-- "cost", "bill", "amount", "charge" → refers to `total_cost` or `costandbillingview`
+- "cost", "bill", "amount", "charge" → refers to `total_cost` or `cost_and_billing_view`
 - "this month", "monthly", "in April" → filter by `month_year: "Month-YYYY"`
 - "recent", "latest", "current", "new" → use `order_by: {{ creation_date_and_time: desc }}`
 
@@ -76,7 +72,7 @@ Map these phrases to fields/filters:
 
 ### 📄 TABLE SCHEMA
 
-**Table: bloodorderview** — Blood order records
+**Table: blood_order_view** — Blood order records
 
 | Field                    | Description                              | Example Value                     |
 |--------------------------|------------------------------------------|-----------------------------------|
@@ -102,7 +98,7 @@ So use `delivery_date_and_time: {{ _is_null: true }}` to filter orders that are 
 
 ---
 
-**Table: costandbillingview** — Monthly billing summary
+**Table: cost_and_billing_view** — Monthly billing summary
 
 | Field              | Description                        | Example Value       |
 |--------------------|------------------------------------|---------------------|
@@ -243,9 +239,7 @@ Data response :
 ---
 """
 
-system_data_analysis_prompt_format = system_data_analysis_prompt_template.format(current_date_time=get_current_datetime())
-
-
+# system_data_analysis_prompt_format = system_data_analysis_prompt_template.format(current_date_time=get_current_datetime())
 
 system_data_analysis_prompt_format = system_data_analysis_prompt_template.format(current_date_time=get_current_datetime())
 
