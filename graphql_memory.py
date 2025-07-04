@@ -203,7 +203,7 @@ class HasuraMemory():
         thread_id = config.get("configurable", {}).get("thread_id", "unknown")
 
         graphql_query = """query MyQuery($thread_id: String) {
-            chat_messages(where: {session_id: {_eq: $thread_id}, sender_type: {_in: ["user", "final_response"]}}, limit: 4) {
+            chat_messages(where: {session_id: {_eq: $thread_id}, sender_type: {_in: ["user", "final_response"]}}) {
                 role: messages(path: "type")
                 content: messages(path: "content")
                 created_at
