@@ -133,7 +133,7 @@ async def chat_endpoint(req: ChatRequest):
     result = await process_normal_message(req)
     return result
 
-@app.get("/get_session_messages")
+@app.post("/get_session_messages")
 async def get_session_messages(req: HistoryRequest): 
 
     print("get_session_messages request details: ", req.session_id)

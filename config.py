@@ -31,8 +31,8 @@ class Settings(BaseSettings):
 
     # LangSmith settings
     LANGCHAIN_TRACING_V2: str = Field("false", env="LANGCHAIN_TRACING_V2") 
-    LANGCHAIN_ENDPOINT: Optional[str] = Field(None, env="LANGCHAIN_ENDPOINT")
-    LANGCHAIN_API_KEY: Optional[str] = Field(None, env="LANGCHAIN_API_KEY")
+    LANGCHAIN_ENDPOINT: Optional[str] = Field("", env="LANGCHAIN_ENDPOINT")
+    LANGCHAIN_API_KEY: Optional[str] = Field("", env="LANGCHAIN_API_KEY")
 
     # Rate limiting
     RATE_LIMIT_PER_MINUTE: int = Field(60, env="RATE_LIMIT_PER_MINUTE")
@@ -43,7 +43,7 @@ class Settings(BaseSettings):
         return self.ALLOWED_ORIGINS.split(',')
     
     class Config:
-        env_file = "dev.env"
+        env_file = ".env"
         case_sensitive = True
         extra = "allow" 
 

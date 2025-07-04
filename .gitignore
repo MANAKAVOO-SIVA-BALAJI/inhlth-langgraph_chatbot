@@ -4,6 +4,8 @@ __pycache__/
 *$py.class
 practise.doc
 # C extensions
+Dockerfile
+.dockerignore
 .env
 *.so
 practise.py
