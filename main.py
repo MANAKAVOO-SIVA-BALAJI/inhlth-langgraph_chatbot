@@ -12,7 +12,12 @@ from logging_config import setup_logger
 from config import HASURA_ADMIN_SECRET,HASURA_GRAPHQL_URL,HASURA_ROLE ,LANGCHAIN_TRACING_V2, LANGCHAIN_ENDPOINT, LANGCHAIN_API_KEY ,APP_DEBUG
 import os
 from graphql_memory import HasuraMemory
-from utils import get_session_id
+from utils import get_session_id , get_current_datetime
+from langsmith import utils
+import uuid
+import json
+from context_store import set_request_id, set_user_id
+
 if APP_DEBUG:
     os.environ["LANGCHAIN_API_KEY"] = LANGCHAIN_API_KEY
     os.environ["LANGCHAIN_TRACING_V2"] = LANGCHAIN_TRACING_V2
@@ -20,6 +25,13 @@ if APP_DEBUG:
 
 logger = setup_logger()
 
+trace = False
+
+if utils.tracing_is_enabled():
+    trace = True
+    print("LangSmith tracing is enabled.")
+else:
+    print("LangSmith tracing is not enabled.")
 
 class UserRole(str, Enum):
     SYSTEM_ADMIN = "SYSTEM_ADMIN"
@@ -27,7 +39,7 @@ class UserRole(str, Enum):
     BLOOD_BANK = "BLOOD_BANK"
 
 def date_time():
-    return datetime.utcnow().isoformat()
+    return datetime.now().isoformat()
 
 class UserInfo(BaseModel):
     user_id: str = Field()
@@ -39,7 +51,7 @@ class ChatRequest(UserInfo):
     """
     message: str = Field(..., min_length=1, max_length=1000)
     session_id: str = Field(default=get_session_id())
-    timestamp: str = Field(default_factory=date_time)
+    timestamp: str = Field(default_factory=get_current_datetime)
 
     @field_validator("message")
     def validate_message_content(cls, v):
@@ -50,13 +62,20 @@ class ChatRequest(UserInfo):
             raise ValueError("Message cannot be empty")
         return v
 
+    @field_validator("session_id")
+    def add_session_id(cls, v):
+        if not v.strip():
+            print("Session ID is empty, generating a new one...")
+            return get_session_id()
+        return v
+        
 class ChatResponse(BaseModel):
     """
     Model for chat responses.
     """
-    session_id: str = Field()
+    session_id: str = Field(default=get_session_id())
     response: str = Field(..., description="The chatbot's response to the user's message")
-    timestamp: str = Field(default_factory=date_time)
+    timestamp: str = Field(default_factory=get_current_datetime)
 
 class HistoryRequest(BaseModel):
     """
@@ -85,9 +104,25 @@ app.add_middleware(
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    logger.info(f"New request: {request.method} {request.url}")
+    body_bytes = await request.body()
+
+    async def receive():
+        return {"type": "http.request", "body": body_bytes}
+    request._receive = receive
+
+    try:
+        body = json.loads(body_bytes)
+        user_id = body.get("user_id", "anonymous")
+    except (json.JSONDecodeError, AttributeError):
+        user_id = "anonymous"
+
+    set_user_id(user_id)
+    request_id = str(uuid.uuid4())
+    logger.info(f"[{request_id}] Incoming request: {request.method} {request.url} (User: {user_id})")
+
     response = await call_next(request)
-    logger.info(f"Completed with status code: {response.status_code}")
+    logger.info(f"[{request_id}] Completed with status code: {response.status_code}")
+
     return response
 
 async def process_normal_message(req: ChatRequest):
@@ -99,22 +134,24 @@ async def process_normal_message(req: ChatRequest):
         return ChatResponse(
             session_id=req.session_id,
             response=response,
-            timestamp=date_time()
+            timestamp=get_current_datetime()
         )
     except Exception as e:
         print("Error:", str(e))
         return ChatResponse(
             session_id=req.session_id,
-            response="Sorry, I couldn't reply with a response at this Moment. Please try again later.",
+            response="Apologies, I couldn't reply with a response at this Moment. Please try again later.",
             timestamp=req.timestamp,
         )
 
+def validate_user_if(user_id:str):
+    return True
 
-@app.get("/")
+@app.get("/ai_assistant/")
 async def root():
     return {"message": "Chatbot API AI backend is live and operational!"}
 
-@app.get("/health")
+@app.get("/ai_assistant/health")
 async def health_check():
     """Health check endpoint"""
     return {
@@ -125,7 +162,7 @@ async def health_check():
         }
     }
 
-@app.post("/chat")
+@app.post("/ai_assistant/chat")
 async def chat_endpoint(req: ChatRequest):
     """
     Normal chat endpoint - returns complete response at once
@@ -133,7 +170,7 @@ async def chat_endpoint(req: ChatRequest):
     result = await process_normal_message(req)
     return result
 
-@app.post("/get_session_messages")
+@app.post("/ai_assistant/get_session_messages")
 async def get_session_messages(req: HistoryRequest): 
 
     print("get_session_messages request details: ", req.session_id)

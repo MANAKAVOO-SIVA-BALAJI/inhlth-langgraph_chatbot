@@ -3,17 +3,20 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage #type: ignore
-from utils import store_datetime
 import json
 from cache import memory_cache
+from gql import Client, gql
+from gql.transport.requests import RequestsHTTPTransport
+
 class HasuraMemory():
     def __init__(
         self, 
         hasura_url: str, 
         hasura_secret: str,
         hasura_role: str = "dataops", #"user"
+        user_id: str = None,
         company_id: Optional[str] = None,
-        user_id: Optional[str] = None
+        
     ):
         self.hasura_url = hasura_url
         self.hasura_secret = hasura_secret
@@ -101,6 +104,7 @@ class HasuraMemory():
             meta_data = {"step": step, "node": node,"sender_type": sender_type}
             objects.append({
                 "session_id": thread_id,
+                "user_id": self.user_id,
                 "step": step,
                 "node": node,
                 "sender_type":sender_type,
@@ -132,7 +136,7 @@ class HasuraMemory():
             )
             data = response.json()
             if "errors" in data:
-                    print(f"[GET_HISTORY] Error : {data['errors']}")
+                    print(f"[SAVE_MESSAGES] Error : {data['errors']}")
                     return []
             print("[PUT] Success:", response.json())
 
@@ -174,7 +178,7 @@ class HasuraMemory():
                 response.raise_for_status()
                 data = response.json()
                 if "errors" in data:
-                    print(f"[GET_HISTORY] Error : {data['errors']}")
+                    print(f"[GET_MESSAGES] Error : {data['errors']}")
                     return []
                 records = data.get("data", {}).get("chat_messages", [])
                 if not records:
@@ -241,3 +245,21 @@ class HasuraMemory():
 
         return records if isinstance(records, list) else [records]
 
+    def run_query(self, query, variables=None):
+        try:
+            gql_query = gql(query) #parse the graphQl query string to a gql object
+            payload = {
+                "query": query,
+                "variables": variables
+            }
+            response = requests.post(self.hasura_url, json=payload, headers=self.headers)
+            response.raise_for_status()
+            data = response.json()
+            if "errors" in data:
+                print(f"Graphql Error: {data['errors']}")
+                return {"data":"No data"}
+            result = data.get("data", {})
+            return result
+        except Exception as e:
+            print(f"GraphQL query error: {str(e)}")
+            
