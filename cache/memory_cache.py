@@ -1,5 +1,6 @@
+from typing import Any, Dict, List
+
 from cachetools import TTLCache
-from typing import List, Dict, Any
 
 chat_history_cache = TTLCache(maxsize=1000, ttl=1800) 
 

@@ -1,29 +1,36 @@
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field, field_validator
-from fastapi.middleware.cors import CORSMiddleware
-
-from enum import Enum
-from datetime import datetime
-from typing import Optional
-from chat import generate_chat_response
-from fastapi import FastAPI, Request
-from logging_config import setup_logger
-from config import HASURA_ADMIN_SECRET,HASURA_GRAPHQL_URL,HASURA_ROLE ,LANGCHAIN_TRACING_V2, LANGCHAIN_ENDPOINT, LANGCHAIN_API_KEY ,APP_DEBUG
-import os
-from graphql_memory import HasuraMemory
-from utils import get_session_id , get_current_datetime
-from langsmith import utils
-import uuid
 import json
-from context_store import set_request_id, set_user_id
+import os
+import random
+import time
+from datetime import datetime
+from enum import Enum
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from langsmith import utils
+from pydantic import BaseModel, Field, field_validator
+
+from chat import generate_chat_response
+from config import (
+    APP_DEBUG,
+    HASURA_ADMIN_SECRET,
+    HASURA_GRAPHQL_URL,
+    HASURA_ROLE,
+    LANGCHAIN_API_KEY,
+    LANGCHAIN_ENDPOINT,
+    LANGCHAIN_TRACING_V2,
+)
+from graphql_memory import HasuraMemory
+from logging_config import setup_logger
+from utils import get_current_datetime, get_message_unique_id, get_session_id, store_datetime
+
+logger = setup_logger()
 
 if APP_DEBUG:
     os.environ["LANGCHAIN_API_KEY"] = LANGCHAIN_API_KEY
     os.environ["LANGCHAIN_TRACING_V2"] = LANGCHAIN_TRACING_V2
     os.environ["LANGCHAIN_ENDPOINT"] = LANGCHAIN_ENDPOINT
-
-logger = setup_logger()
 
 trace = False
 
@@ -61,13 +68,18 @@ class ChatRequest(UserInfo):
         if not v.strip():
             raise ValueError("Message cannot be empty")
         return v
-
-    @field_validator("session_id")
-    def add_session_id(cls, v):
-        if not v.strip():
-            print("Session ID is empty, generating a new one...")
-            return get_session_id()
-        return v
+    
+    ##handle the messages not from the current day
+    # @field_validator("session_id")
+    # def validate_session_id(cls, v):
+    #     """
+    #     Validator to ensure session ID is not empty.
+    #     """
+    #     if v !=get_session_id():
+    #         logger.error("Invalid session id")
+    #         raise ValueError("invalid session id")
+    #     return v
+    
         
 class ChatResponse(BaseModel):
     """
@@ -102,32 +114,120 @@ app.add_middleware(
     allow_headers=["*"],  
 )
 
+def is_valid_user(user_id:str)-> bool:
+    return True
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    body_bytes = await request.body()
+    start_time = time.time()  # Track start time
+
+    # Read and preserve request body
+    try:
+        body_bytes = await request.body()
+    except Exception as e:
+        logger.error(f"Failed to read request body: {e}")
+        return JSONResponse({"error": "Invalid request body"}, status_code=400)
 
     async def receive():
-        return {"type": "http.request", "body": body_bytes}
+        return {"type": "http.request", "body": body_bytes, "more_body": False}
     request._receive = receive
 
+    # Parse body and extract user_id
     try:
         body = json.loads(body_bytes)
-        user_id = body.get("user_id", "anonymous")
-    except (json.JSONDecodeError, AttributeError):
-        user_id = "anonymous"
+    except json.JSONDecodeError as e:
+        logger.warning(f"Invalid JSON format: {e}")
+        return JSONResponse({"error": "Invalid JSON format"}, status_code=400)
 
-    set_user_id(user_id)
-    request_id = str(uuid.uuid4())
-    logger.info(f"[{request_id}] Incoming request: {request.method} {request.url} (User: {user_id})")
+    user_id = body.get("user_id")
+    if not user_id:
+        logger.warning("Missing user_id in request")
+        return JSONResponse({"error": "Missing user_id"}, status_code=401)
 
-    response = await call_next(request)
-    logger.info(f"[{request_id}] Completed with status code: {response.status_code}")
+    if not is_valid_user(user_id):  # checking custom check
+        logger.warning(f"Unauthorized access attempt with user_id: {user_id}")
+        return JSONResponse({"error": "Unauthorized user"}, status_code=401)
+
+    logger.info(f"Incoming request: {request.method} {request.url.path} (User: {user_id})")
+    print("Middleware request", request)
+    try:
+        response = await call_next(request)
+    except Exception as e:
+        logger.exception(f"Unhandled error while processing request: {e}")
+        return JSONResponse({"error": "Internal server error"}, status_code=500)
+
+    process_time = round((time.time() - start_time) * 1000, 2)  # in ms
+    logger.info(f"Request completed: {request.method} {request.url.path} (User: {user_id}) - {process_time}ms")
 
     return response
+
+# @app.post("/ai_assistant/session_init")
+async def session_init(user_id: str,session_id):
+    """
+    Init endpoint - returns complete response at once
+    """
+    logger.info(f"session_init request details:{user_id} ")
+
+    user_id = user_id
+    session_id = session_id 
+    created_at = store_datetime()
+    conversation_id = get_message_unique_id()   
+
+    hasura_client = HasuraMemory(hasura_url=HASURA_GRAPHQL_URL, hasura_secret=HASURA_ADMIN_SECRET, hasura_role=HASURA_ROLE, user_id=user_id)
+
+    initial_response = random.choice(WELCOME_MESSAGES)
+
+    variables = {
+        "session_id": session_id,
+        "user_id": user_id,
+        "metadata": {
+            "node": "default",
+            "step": -1,
+            "sender_type": "system"
+        },
+        "messages": {
+            "id": None,
+            "name": None,
+            "type": "system",
+            "content": initial_response,
+            "example": False,
+            "additional_kwargs": {
+                "tag": "default"
+            },
+            "response_metadata": {}
+        },
+        "sender_type": "system",
+        "node": "default",
+        "step": 0,
+        "created_at":created_at,
+        "conversation_id": conversation_id, 
+        "title": session_id 
+    }
+    
+    result = hasura_client.session_init(variables=variables)
+    if not result:
+        logger.error("Session init failed, unable to create session")
+        return JSONResponse(status_code=500, content={"response": "There was an technical issue. Please try again later."})
+    
+    logger.info(f"Session init Success: {result}")
+    return {"session_id":session_id,"response":initial_response,"timestamp":created_at}
 
 async def process_normal_message(req: ChatRequest):
     """Process message for normal response"""
     config = {"configurable": {"thread_id":req.session_id}}
+    hasura_client = HasuraMemory(
+        hasura_url=HASURA_GRAPHQL_URL,
+        hasura_secret=HASURA_ADMIN_SECRET,
+        hasura_role=HASURA_ROLE,
+        user_id=req.user_id,
+    )
+    session_exists = hasura_client.check_session_exists(req.session_id)
+    print("session_exists", session_exists)
+    if not session_exists:
+        return await session_init(req.user_id,req.session_id)
+    
+    # return {"response":f"Session exist: {session_exists}","session_id":req.session_id,"timestamp":req.timestamp}
+
 
     try:
         response = generate_chat_response(req, config)
@@ -137,15 +237,41 @@ async def process_normal_message(req: ChatRequest):
             timestamp=get_current_datetime()
         )
     except Exception as e:
-        print("Error:", str(e))
+        print("Main Error:", str(e))
         return ChatResponse(
             session_id=req.session_id,
-            response="Apologies, I couldn't reply with a response at this Moment. Please try again later.",
+            response="Oops! Looks like we've got a blood clot in our system. Please try again later.",
             timestamp=req.timestamp,
         )
 
-def validate_user_if(user_id:str):
-    return True
+WELCOME_MESSAGES = [
+    """👋 Welcome to Inhlth Assistant!
+I'm here to help you explore blood supply and cost data. Ask me anything like:
+• "Track my pending orders"
+• "Show rejected orders from last week"
+• "Give me cost details for June 2025"
+""",
+    """🩸 Hi there! This is Inhlth Assistant.
+You can ask me to analyze blood supply data, order statuses, or monthly billing insights. Try:
+• "Pending orders by Blood Bank A"
+• "Orders for plasma in June"
+""",
+    """📊 Hello! I'm Inhlth Assistant.
+Need data insights on blood orders, costs, or deliveries? Ask something like:
+• "How many deliveries happened last month?"
+• "Give me stats for AB+ blood group"
+""",
+    """🧬 Welcome back to Inhlth Assistant!
+I'm ready to help with data analysis and order tracking. You can start with:
+• "Show cost summary for last month"
+• "Track O negative orders"
+""",
+    """🧾 Hello from Inhlth Assistant!
+Ask me anything about blood orders or billing insights. For example:
+• "Orders rejected this week"
+• "Total cost for red blood cells"
+"""
+]
 
 @app.get("/ai_assistant/")
 async def root():
@@ -158,15 +284,21 @@ async def health_check():
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "endpoints": {
-            "normal_chat": "/chat"
+            "normal_chat": "/ai_assistant/chat",
+            "history": "/ai_assistant/get_session_messages",
+            "health": "/ai_assistant/health",
+            "test": "/ai_assistant"
         }
     }
+
 
 @app.post("/ai_assistant/chat")
 async def chat_endpoint(req: ChatRequest):
     """
     Normal chat endpoint - returns complete response at once
     """
+    logger.info(f"Chat Request: {req}")
+    
     result = await process_normal_message(req)
     return result
 
@@ -182,70 +314,24 @@ async def get_session_messages(req: HistoryRequest):
             return HistoryResponse(messages=[])
     except Exception as e:
         print(f"Error retrieving messages: {e}")
-        return JSONResponse(status_code=500, content={"message": "Internal server error while retrieving messages."})
+        return JSONResponse(status_code=500, content={"message": []})
     
     return HistoryResponse(messages=history)
 
-# # Example response format:
-# {
-#     "messages": [
-#         {
-#             "role": "user",
-#             "content": "hello, inhlth",
-#             "created_at": "2025-07-01T13:07:48.905346",
-#             "conversation_id": "2025_07_01_13_07_51_957074"
-#         },
-#         {
-#             "role": "ai",
-#             "content": "Hello! How can I assist you today?",
-#             "created_at": "2025-07-01T13:07:51.954991",
-#             "conversation_id": "2025_07_01_13_07_51_957074"
-#         }
-#     ]
-# }
+@app.post("/ai_assistant/get_session_list")
+async def get_session_list(req: UserInfo):
+    print("get_session_list request details: ", req.user_id)
+    hasura_obj = HasuraMemory(hasura_url=HASURA_GRAPHQL_URL, hasura_secret=HASURA_ADMIN_SECRET, hasura_role=HASURA_ROLE, user_id=req.user_id)
 
-
-# @app.post("/chat/stream")
-# async def chat_stream_endpoint(req: ChatRequest):
-#     """
-#     Streaming chat endpoint - returns response in real-time chunks
-#     Uses Server-Sent Events (SSE) format
-#     """
-#     return StreamingResponse(
-#         create_streaming_generator(req),
-#         media_type="text/plain",
-#         headers={
-#             "Cache-Control": "no-cache",
-#             "Connection": "keep-alive",
-#             "Content-Type": "text/event-stream"
-#         }
-#     )
-
-
-# @app.post("/chat/stream-simple")
-# async def chat_stream_simple_endpoint(req: ChatRequest):
-#     """
-#     Simple streaming endpoint - returns just the content chunks
-#     For basic streaming without SSE format
-#     """
-#     def simple_generator():
-#         try:
-#             for chunk in generate_streaming_response(req.message):
-#                 yield chunk
-#         except Exception as e:
-#             yield f"Error: {str(e)}"
+    try:
+        session_list = hasura_obj.get_session_list()
+        if not session_list:
+            return {"sessions_list": []}
+    except Exception as e:
+        print(f"Error retrieving messages: {e}")
+        return JSONResponse(status_code=500, content={"sessions": []})
     
-#     return StreamingResponse(
-#         simple_generator(),
-#         media_type="text/plain"
-#     )
+    return {"sessions_list": session_list}
 
 
-# if __name__ == "__main__":
-#     import uvicorn 
-    
-#     print("Starting FastAPI server...")
-#     print("Available endpoints:")
-
-#     uvicorn.run(app, host="0.0.0.0", port=8000)
 

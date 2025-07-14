@@ -1,53 +1,110 @@
 
+from typing import Any, Dict
+
+from langchain_core.messages import HumanMessage  # type: ignore
+from langsmith.run_helpers import traceable  # type: ignore
+
+from config import HASURA_ADMIN_SECRET, HASURA_GRAPHQL_URL, HASURA_ROLE
 from graph_builder import build_graph
-from langchain_core.messages import AIMessage, HumanMessage ,ToolMessage # type: ignore
 from graphql_memory import HasuraMemory
-from config import HASURA_ADMIN_SECRET,HASURA_GRAPHQL_URL,HASURA_ROLE
-from typing import Dict, Any
-from langsmith.run_helpers import traceable # type: ignore
-from utils import store_datetime ,get_message_unique_id
+from logging_config import setup_logger
+from utils import get_message_unique_id, store_datetime
+
+logger = setup_logger()
+
+from logging_config import setup_logger
+
+logger = setup_logger()
 
 @traceable(name="generate_chat_response", tags=["chatbot", "langgraph"])
-def generate_chat_response(chat_request,config: Dict[str, Any]) -> str:
+def generate_chat_response(chat_request, config: Dict[str, Any]) -> str:
     """Generate a chat response using the graph."""
-    from langsmith import utils # type: ignore
-    if utils.tracing_is_enabled():
-        print("LangSmith tracing is enabled.")
-    else:
-        print("LangSmith tracing is not enabled.")
-    conversation_id = get_message_unique_id()
-    hasura_memory = HasuraMemory(hasura_url=HASURA_GRAPHQL_URL,hasura_secret=HASURA_ADMIN_SECRET,hasura_role=HASURA_ROLE,company_id=chat_request.company_id,user_id=chat_request.user_id)
-    graph = build_graph(chat_request.company_id,chat_request.user_id)
-    message = [HumanMessage(content=chat_request.message)]
-    meta_data = {"step": 0, "node": "human","sender_type": "input"}
-    history =hasura_memory.get_messages(config)
-    if not history:
-        history = []
-        history_length=0
-    else:
-        history_length = len(history)
-    
+    conversation_id = get_message_unique_id()  # Use as trace_id
 
-    print("history:",type(history),history_length)
+    user_id = chat_request.user_id
 
-    # return "This is a test response. Data request received successfully, but no real call was made."
-    if not message:
-        return "Error processing the request. Please provide a valid input."    
-    output = graph.invoke({
-        "messages": message,
-        "history": history,
-        "nodes":["input"],
-        "time":[store_datetime()],
-    })
-    # print("Type:",type(output["messages"][-1]))
+    try:
+        from langsmith import utils  # type: ignore
+        if utils.tracing_is_enabled():
+            logger.info(f"[trace_id={conversation_id}] LangSmith tracing is enabled. user_id={user_id}")
+        else:
+            logger.info(f"[trace_id={conversation_id}] LangSmith tracing is not enabled. user_id={user_id}")
 
-    print("nodes:",output["nodes"])
-    print("time:",output["time"])
+        # Initialize Hasura memory
+        try:
+            hasura_memory = HasuraMemory(
+                hasura_url=HASURA_GRAPHQL_URL,
+                hasura_secret=HASURA_ADMIN_SECRET,
+                hasura_role=HASURA_ROLE,
+                company_id=chat_request.company_id,
+                user_id=chat_request.user_id
+            )
+        except Exception as e:
+            logger.error(f"[trace_id={conversation_id}] Failed to initialize HasuraMemory for user_id={user_id}: {e}")
+            return "Something went wrong. Please try again later."
 
-    store_messages = output["messages"]
-    hasura_memory.save_messages(config,store_messages,nodes=output["nodes"],time=output["time"], conversation_id=conversation_id)
+        #build graph
+        try:
+            graph = build_graph(chat_request.company_id, chat_request.user_id)
+        except Exception as e:
+            logger.error(f"[trace_id={conversation_id}] Failed to build graph for user_id={user_id}: {e}")
+            return "Something went wrong. Please try again later."
 
-    return output["messages"][-1].content.replace("*","") if output["messages"] else "Sorry, I could not generate a response at this time. Please try again later."
+        # validate user input
+        if not chat_request.message:
+            logger.warning(f"[trace_id={conversation_id}] Empty message received from user_id={user_id}")
+            return "Error processing the request. Please provide a valid input."
+
+        message = [HumanMessage(content=chat_request.message, additional_kwargs={"tag": "user_input"})]
+
+        # fetch history
+        try:
+            history = hasura_memory.get_messages(config)
+        except Exception as e:
+            logger.error(f"[trace_id={conversation_id}] Failed to fetch message history for user_id={user_id}: {e}")
+            history = []
+        
+        history_length = len(history) if history else 0
+        logger.info(f"[trace_id={conversation_id}] Retrieved history for user_id={user_id}, length={history_length}")
+
+        # invoke the graph
+        try:
+            output = graph.invoke({
+                "messages": message,
+                "history": history,
+                "nodes": ["input"],
+                "time": [store_datetime()],
+            })
+        except Exception as e:
+            logger.error(f"[trace_id={conversation_id}] Graph invocation failed for user_id={user_id}: {e}")
+            return "Sorry, I could not generate a response at this time. Please try again later."
+
+        logger.info(f"[trace_id={conversation_id}] Graph invocation successful. user_id={user_id}")
+        logger.debug(f"[trace_id={conversation_id}] Output nodes: {output.get('nodes')}, time: {output.get('time')}")
+
+        # Save messages
+        try:
+            store_messages = output.get("messages", [])
+            hasura_memory.save_messages(
+                config,
+                store_messages,
+                nodes=output.get("nodes"),
+                time=output.get("time"),
+                conversation_id=conversation_id
+            )
+        except Exception as e:
+            logger.error(f"[trace_id={conversation_id}] Failed to store messages for user_id={user_id}: {e}")
+
+        # Return response
+        return (
+            store_messages[-1].content.replace("*", "")
+            if store_messages else
+            "I'm having trouble generating a response right now. Please try again later, and I'll do my best to help you."
+        )
+
+    except Exception as e:
+        logger.error(f"[trace_id={conversation_id}] Unexpected error for user_id={user_id}: {e}")
+        return "We're experiencing technical difficulties. Our team is working to resolve this as soon as possible. Please try again later."
 
 
 # user_input = "hello, track my last order?"

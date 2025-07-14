@@ -1,9 +1,10 @@
 # app/config.py
-import os
 from typing import List, Optional
+
 from dotenv import load_dotenv
+from pydantic import Field
 from pydantic_settings import BaseSettings
-from pydantic import Field, computed_field
+
 from logging_config import setup_logger
 
 logger = setup_logger()
@@ -52,6 +53,9 @@ settings = Settings()
 # # print("Allowed Origins:", settings.model_dump())
 # print("APP_Debug:", settings.APP_DEBUG)
 # print("Log Level:", settings.LOG_LEVEL)
+print("HASURA_GRAPHQL_URL:", settings.HASURA_GRAPHQL_URL)
+print("HASURA_ADMIN_SECRET:", settings.HASURA_ADMIN_SECRET)
+print("HASURA_ROLE:", settings.HASURA_ROLE)
 
 OPENAI_API_KEY = settings.OPENAI_API_KEY
 HASURA_ADMIN_SECRET = settings.HASURA_ADMIN_SECRET

@@ -10,6 +10,10 @@ Dockerfile
 *.so
 practise.py
 dev_requirements.txt
+falback_response.py
+.python-version
+uv.lock
+pyproject.toml
 # Distribution / packaging
 .Python
 build/

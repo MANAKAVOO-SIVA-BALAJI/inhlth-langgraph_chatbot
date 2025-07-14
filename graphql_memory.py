@@ -1,19 +1,26 @@
-import requests
-import uuid
-from datetime import datetime
-from typing import Any, Dict, List, Optional
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage #type: ignore
 import json
+import uuid
+from typing import Any, Dict, List, Optional
+
+import requests
+from langchain_core.messages import (  #type: ignore
+    AIMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
+
 from cache import memory_cache
-from gql import Client, gql
-from gql.transport.requests import RequestsHTTPTransport
+from logging_config import setup_logger
+
+logger = setup_logger()
 
 class HasuraMemory():
     def __init__(
         self, 
         hasura_url: str, 
         hasura_secret: str,
-        hasura_role: str = "dataops", #"user"
+        hasura_role: str = "dataops", 
         user_id: str = None,
         company_id: Optional[str] = None,
         
@@ -32,7 +39,7 @@ class HasuraMemory():
         }
     def _safe_serialize(self, obj):
         """Recursively convert complex LangChain objects into JSON-serializable format"""
-        from langchain.schema import BaseMessage# type: ignore
+        from langchain.schema import BaseMessage  # type: ignore
         if isinstance(obj, BaseMessage):
             return obj.model_dump()
         elif isinstance(obj, dict):
@@ -66,7 +73,7 @@ class HasuraMemory():
 
     def save_messages(self, config: Dict[str, Any], messages: list,nodes: list,time: list, conversation_id: str) -> None:
         """Store multiple messages in Hasura, excluding tool-related messages"""
-        print(f"[SAVE_MESSAGES] Called with arguments:")
+        print("[SAVE_MESSAGES] Called with arguments:")
         print(f"  config: {config}")
         print(f"  messages Length: {len(messages)}")
         print(f"conversation_id: {conversation_id}")
@@ -98,7 +105,7 @@ class HasuraMemory():
                 sender_type = "agent"
             if nodes_i < len(nodes):
                 node = nodes[nodes_i]
-            if node == "data_analyser":
+            if node == "data_analyser" or node == "general_response" or node == "clarify":
                 sender_type = "final_response"
             
             meta_data = {"step": step, "node": node,"sender_type": sender_type}
@@ -134,6 +141,8 @@ class HasuraMemory():
                 json={"query": graphql_query, "variables": variables},
                 headers=self.headers
             )
+            print(f"[SAVE_MESSAGES] - Response: {response.json()}")
+
             data = response.json()
             if "errors" in data:
                     print(f"[SAVE_MESSAGES] Error : {data['errors']}")
@@ -146,14 +155,13 @@ class HasuraMemory():
 
     def get_messages(self,config: Dict[str, Any]) -> List:
             """Retrieve messages for a thread"""
-            print(f"[GET_MESSAGES] Called with arguments:")
+            print("[GET_MESSAGES] Called with arguments:")
             print(f"  config: {config}")
-            
             thread_id = config.get("configurable", {}).get("thread_id", "unknown")
-            records_1 = memory_cache.get_history(thread_id)
-            if records_1:
-                print(f"[GET_MESSAGES] Found {len(records_1)} messages in cache for thread_id: {thread_id}")
-                return records_1
+            records_cache = memory_cache.get_history(thread_id)
+            if records_cache:
+                print(f"[GET_MESSAGES] Found {len(records_cache)} messages in cache for thread_id: {thread_id}")
+                return records_cache
 
             graphql_query = """query MyQuery($thread_id: String) {
                 chat_messages(where: {session_id: {_eq: $thread_id}, sender_type: {_in: ["user","final_response"]}}, limit: 10) {
@@ -201,13 +209,13 @@ class HasuraMemory():
 
     def get_history(self, config: Dict[str, Any]) -> List:
         """Retrieve chat history for a session"""
-        print(f"[GET_HISTORY] Called with arguments:")
+        print("[GET_HISTORY] Called with arguments:")
         print(f"  config: {config}")
         
         thread_id = config.get("configurable", {}).get("thread_id", "unknown")
 
         graphql_query = """query MyQuery($thread_id: String) {
-            chat_messages(where: {session_id: {_eq: $thread_id}, sender_type: {_in: ["user", "final_response"]}}) {
+            chat_messages(where: {session_id: {_eq: $thread_id}, sender_type: {_in: ["system","user", "final_response"]}}) {
                 role: messages(path: "type")
                 content: messages(path: "content")
                 created_at
@@ -245,9 +253,131 @@ class HasuraMemory():
 
         return records if isinstance(records, list) else [records]
 
+    def get_session_list(self) -> List:
+        print("[GET_SESSION_LIST] Called")
+        graphql_query = """query MyQuery {
+            chat_messages(distinct_on: session_id, order_by: {session_id: desc}) {
+                session_id
+            }
+            }
+            """
+        try:
+            response = requests.post(self.hasura_url, json={"query": graphql_query}, headers=self.headers)
+            response.raise_for_status()
+            data = response.json()
+            print(f"[GET_SESSION_LIST] Response: {data}")
+            if "errors" in data:
+                print(f"[GET_SESSION_LIST] Error: {data['errors']}")
+                return []
+            records = data.get("data", {}).get("chat_messages", [])
+            if not records:
+                print("[GET_SESSION_LIST] No data found")
+                return []
+        except Exception as e:
+            print(f"[GET_SESSION_LIST] Error retrieving checkpoint from Hasura: {e}")
+            return []
+        result=[msg["session_id"] for msg in records]
+        return result
+
     def run_query(self, query, variables=None):
         try:
-            gql_query = gql(query) #parse the graphQl query string to a gql object
+            # gql_query = gql(query) #parse the graphQl query string to a gql object
+            payload = {
+                "query": query,
+                "variables": variables
+            }
+            response = requests.post(self.hasura_url, json=payload, headers=self.headers)
+            response.raise_for_status()
+            data = response.json()
+            if "errors" in data:
+                print(f"Graphql Error: {data['errors']}")
+                return {"data":"No data"}
+            result = data.get("data", {})
+            print("Run query result:", result)
+            return result
+        except Exception as e:
+            print(f"GraphQL query error: {str(e)}")
+            return None
+
+    def session_init(self, variables):
+        print("Session initiated")
+
+        try:
+            # query= """
+            #     mutation MyMutation($user_id: String!, $session_id: String!, $created_at: timestamp!, $conversation_id: String!, $messages: jsonb!, $metadata: jsonb!, $node: String!, $sender_type: String!, $step: Int!) {
+            #     insert_chat_sessions(objects: {user_id: $user_id, session_id: $session_id, created_at: $created_at}) {
+            #         returning {
+            #         session_id
+            #         created_at
+            #         }
+            #     }
+            #     insert_chat_messages(objects: {conversation_id: $conversation_id, created_at: $created_at, messages: $messages, metadata: $metadata, node: $node, sender_type: $sender_type, session_id: $session_id, step: $step, user_id: $user_id}) {
+            #         affected_rows
+            #     }
+            #     }
+            #      """
+            
+            query = """ mutation MyMutation(
+                $user_id: String!,
+                $session_id: String!,
+                $created_at: timestamp!,
+                $conversation_id: String!,
+                $messages: jsonb!,
+                $metadata: jsonb!,
+                $node: String!,
+                $sender_type: String!,
+                $step: Int!,
+                $title: String = ""
+                ) {
+                insert_chat_sessions(
+                    objects: {
+                    user_id: $user_id,
+                    session_id: $session_id,
+                    created_at: $created_at,
+                    title: $title
+                    },
+                    on_conflict: {
+                    constraint: chat_sessions_pkey,  # <-- Primary key constraint name
+                    update_columns: []               # <-- Don't update anything
+                    }
+                ) {
+                    returning {
+                    session_id
+                    created_at
+                    }
+                }
+
+                insert_chat_messages(objects: {
+                    conversation_id: $conversation_id,
+                    created_at: $created_at,
+                    messages: $messages,
+                    metadata: $metadata,
+                    node: $node,
+                    sender_type: $sender_type,
+                    session_id: $session_id,
+                    step: $step,
+                    user_id: $user_id
+                }) {
+                    affected_rows
+                }
+                }
+                """
+
+            variables= variables
+            data = self.run_mutation(query, variables)
+            print("session_init_data", data)
+            if "errors" in data:
+                print(f"Graphql Error: {data['errors']}")
+                return {"data":"No data"}
+            
+            return data
+        except Exception as e:
+            print(f"GraphQL query error: {str(e)}")
+            return None
+
+    def run_mutation(self, query, variables=None):
+        try:
+            # gql_query = gql(query) #parse the graphQl query string to a gql object
             payload = {
                 "query": query,
                 "variables": variables
@@ -262,4 +392,50 @@ class HasuraMemory():
             return result
         except Exception as e:
             print(f"GraphQL query error: {str(e)}")
-            
+            return None
+
+    def validate_user_id(self, user_id):
+
+        try:
+            # gql_query = gql(query) #parse the graphQl query string to a gql object
+            query= """
+                query MyQuery($user_id: String) {
+                    chat_sessions(where: {user_id: {_eq: $user_id}}) {
+                        user_id
+                    }
+                    }
+                    """
+            variables= {
+                "user_id": user_id
+            }
+            payload = {
+                "query": query,
+                "variables": variables
+            }
+            response = requests.post(self.hasura_url, json=payload, headers=self.headers)
+            response.raise_for_status()
+            data = response.json()
+            if "errors" in data:
+                print(f"Graphql Error: {data['errors']}")
+                return False
+            result = data.get("data", {})
+            return True
+        except Exception as e:
+            print(f"GraphQL query error: {str(e)}")
+            return False
+
+    def check_session_exists(self, session_id: str) -> bool:
+        query = """
+        query CheckSession($session_id: String!) {
+            chat_sessions_by_pk(session_id: $session_id) {
+                session_id
+            }
+        }
+        """
+        variables = {"session_id": session_id}
+        result = self.run_query(query, variables)
+        print("result", result)
+        exists = result.get("chat_sessions_by_pk")
+        print("exists", exists)
+        return bool(exists)
+
