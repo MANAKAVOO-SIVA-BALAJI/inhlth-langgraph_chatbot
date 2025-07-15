@@ -296,7 +296,7 @@ async def feedback_endpoint(req: FeedbackRequest):
     feedback = req.feedback
 
     result = hasura_obj.add_feedback(conversation_id=conversation_id,session_id=session_id,feedback=feedback)
-    return result
+    return {"response": "Feedback added successfully!"}
 
 @app.post("/ai_assistant/chat")
 async def chat_endpoint(req: ChatRequest):
