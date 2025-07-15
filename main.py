@@ -5,7 +5,7 @@ import random
 import time
 from datetime import datetime
 from enum import Enum
-
+from typing import Dict, List, Optional, Union
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -59,7 +59,7 @@ class ChatRequest(UserInfo):
     """
     message: str = Field(..., min_length=1, max_length=1000)
     session_id: str = Field(default=get_session_id())
-    timestamp: str = Field(default_factory=get_current_datetime)
+    created_at: str = Field(default_factory=get_current_datetime)
 
     @field_validator("message")
     def validate_message_content(cls, v):
@@ -88,7 +88,8 @@ class ChatResponse(BaseModel):
     """
     session_id: str = Field(default=get_session_id())
     response: str = Field(..., description="The chatbot's response to the user's message")
-    timestamp: str = Field(default_factory=get_current_datetime)
+    created_at: str = Field(default_factory=get_current_datetime)
+    conversation_id: Optional[str] = Field(..., description="Conversation ID for each request")
 
 class HistoryRequest(BaseModel):
     """
@@ -102,6 +103,17 @@ class HistoryResponse(BaseModel):
     Model for chat history.
     """
     messages: list = Field(..., description="List of chat messages in the session")
+
+class FeedbackEnum(str, Enum):
+    zero = "0"
+    one = "1"
+
+class FeedbackRequest(BaseModel):
+    user_id: str = Field(..., description="User ID")
+    feedback: FeedbackEnum = Field(..., description="Feedback must be '0' or '1'")
+    conversation_id: str
+    session_id: str = Field(default_factory=get_session_id, description="Session ID")
+
 
 app = FastAPI(title="Inhlth AI Chatbot API",
              description="API for interacting with the Inhlth AI Chatbot",
@@ -188,7 +200,7 @@ async def session_init(user_id: str,session_id):
         return JSONResponse(status_code=500, content={"response": "There was an technical issue. Please try again later."})
     
     logger.info(f"Session init Success: {result}")
-    return {"session_id":session_id,"response":initial_response,"timestamp":created_at}
+    return {"session_id":session_id,"response":initial_response,"created_at":created_at}
 
 async def process_normal_message(req: ChatRequest):
     """Process message for normal response"""
@@ -203,21 +215,24 @@ async def process_normal_message(req: ChatRequest):
     print("session_exists", session_exists)
     if not session_exists:
         session_response = await session_init(req.user_id, req.session_id)
-
     
+    conversation_id = get_message_unique_id()
+
     try:
-        response = generate_chat_response(req, config)
+        response = generate_chat_response(chat_request = req,config = config,conversation_id=conversation_id)
         return ChatResponse(
             session_id=req.session_id,
             response=response,
-            timestamp=get_current_datetime()
+            created_at=get_current_datetime(),
+            conversation_id=conversation_id
         )
     except Exception as e:
         print("Main Error:", str(e))
         return ChatResponse(
             session_id=req.session_id,
-            response="Oops! Looks like we've got a blood clot in our system. Please try again later.",
-            timestamp=req.timestamp,
+            response="Oops! Looks like we've got a technical issue in our system. Please try again later.",
+            created_at=req.created_at,
+            conversation_id=conversation_id
         )
 
 WELCOME_MESSAGES = [
@@ -267,6 +282,21 @@ async def health_check():
         }
     }
 
+@app.post("/ai_assistant/feedback")
+async def feedback_endpoint(req: FeedbackRequest):
+    """
+    Feedback endpoint - returns complete response at once
+    """
+    logger.info(f"Feedback Request: {req}")
+    user_id = req.user_id
+    hasura_obj = HasuraMemory(hasura_url=HASURA_GRAPHQL_URL, hasura_secret=HASURA_ADMIN_SECRET, hasura_role=HASURA_ROLE, user_id=user_id)
+    conversation_id = req.conversation_id
+    
+    session_id = req.session_id
+    feedback = req.feedback
+
+    result = hasura_obj.add_feedback(conversation_id=conversation_id,session_id=session_id,feedback=feedback)
+    return result
 
 @app.post("/ai_assistant/chat")
 async def chat_endpoint(req: ChatRequest):

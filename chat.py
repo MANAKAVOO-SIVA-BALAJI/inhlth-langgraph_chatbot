@@ -17,18 +17,18 @@ from logging_config import setup_logger
 logger = setup_logger()
 
 @traceable(name="generate_chat_response", tags=["chatbot", "langgraph"])
-def generate_chat_response(chat_request, config: Dict[str, Any]) -> str:
+def generate_chat_response(chat_request, config: Dict[str, Any], conversation_id: str = get_message_unique_id()) -> str:
     """Generate a chat response using the graph."""
-    conversation_id = get_message_unique_id()  # Use as trace_id
+      # Use as trace_id
 
     user_id = chat_request.user_id
 
     try:
         from langsmith import utils  # type: ignore
         if utils.tracing_is_enabled():
-            logger.info(f"[trace_id={conversation_id}] LangSmith tracing is enabled. user_id={user_id}")
+            logger.info(f" LangSmith tracing is enabled. user_id={user_id}")
         else:
-            logger.info(f"[trace_id={conversation_id}] LangSmith tracing is not enabled. user_id={user_id}")
+            logger.info(f" LangSmith tracing is not enabled. user_id={user_id}")
 
         # Initialize Hasura memory
         try:
@@ -65,7 +65,7 @@ def generate_chat_response(chat_request, config: Dict[str, Any]) -> str:
             history = []
         
         history_length = len(history) if history else 0
-        logger.info(f"[trace_id={conversation_id}] Retrieved history for user_id={user_id}, length={history_length}")
+        logger.info(f" Retrieved history for user_id={user_id}, length={history_length}")
 
         # invoke the graph
         try:
@@ -79,7 +79,7 @@ def generate_chat_response(chat_request, config: Dict[str, Any]) -> str:
             logger.error(f"[trace_id={conversation_id}] Graph invocation failed for user_id={user_id}: {e}")
             return "Sorry, I could not generate a response at this time. Please try again later."
 
-        logger.info(f"[trace_id={conversation_id}] Graph invocation successful. user_id={user_id}")
+        logger.info(f"Graph invocation successful. user_id={user_id}")
         logger.debug(f"[trace_id={conversation_id}] Output nodes: {output.get('nodes')}, time: {output.get('time')}")
 
         # Save messages
@@ -107,10 +107,4 @@ def generate_chat_response(chat_request, config: Dict[str, Any]) -> str:
         return "We're experiencing technical difficulties. Our team is working to resolve this as soon as possible. Please try again later."
 
 
-# user_input = "hello, track my last order?"
-# print("User: ", user_input)
-# config = {"configurable": {"thread_id":"CSI-A7PD1CV7YA"}} # req.session_id
 
-# output = generate_chat_response(user_input,config)
-
-# print("Chatbot: ", output)

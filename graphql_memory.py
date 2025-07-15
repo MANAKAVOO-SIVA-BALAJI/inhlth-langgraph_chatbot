@@ -213,26 +213,28 @@ class HasuraMemory():
         
         thread_id = config.get("configurable", {}).get("thread_id", "unknown")
 
-        graphql_query = """query MyQuery($thread_id: String) {
-            chat_messages(where: {session_id: {_eq: $thread_id}, sender_type: {_in: ["user", "final_response"]}}, order_by: {created_at: asc}) {
-                role: messages(path: "type")
-                node
-                content: messages(path: "content")
-                created_at
-                conversation_id
-            }
-            }
-
+        graphql_query = """query MyQuery($session_id: String, $user_id: String = "") {
+                chat_messages(where: {session_id: {_eq: $session_id}, sender_type: {_in: ["user", "final_response"]}, user_id: {_eq: $user_id}}, order_by: {created_at: asc}) {
+                    role: messages(path: "type")
+                    node
+                    content: messages(path: "content")
+                    created_at
+                    conversation_id
+                    feedback
+                }
+                }
             """
         
         variables= {
-            "thread_id": thread_id
+            "session_id": thread_id,
+            "user_id": self.user_id
         }
 
         payload = {
             "query": graphql_query,
             "variables": variables
         }
+        
         try:
             response = requests.post(self.hasura_url, json=payload, headers=self.headers, timeout=10)
             response.raise_for_status()
@@ -309,54 +311,7 @@ class HasuraMemory():
     def session_init(self, variables):
         print("Session initiated")
 
-        try:
-            
-            # query = """ mutation MyMutation(
-            #     $user_id: String!,
-            #     $session_id: String!,
-            #     $created_at: timestamp!,
-            #     $conversation_id: String!,
-            #     $messages: jsonb!,
-            #     $metadata: jsonb!,
-            #     $node: String!,
-            #     $sender_type: String!,
-            #     $step: Int!,
-            #     $title: String = ""
-            #     ) {
-            #     insert_chat_sessions(
-            #         objects: {
-            #         user_id: $user_id,
-            #         session_id: $session_id,
-            #         created_at: $created_at,
-            #         title: $title
-            #         },
-            #         on_conflict: {
-            #         constraint: chat_sessions_pkey,  # <-- Primary key constraint name
-            #         update_columns: []               # <-- Don't update anything
-            #         }
-            #     ) {
-            #         returning {
-            #         session_id
-            #         created_at
-            #         }
-            #     }
-
-            #     insert_chat_messages(objects: {
-            #         conversation_id: $conversation_id,
-            #         created_at: $created_at,
-            #         messages: $messages,
-            #         metadata: $metadata,
-            #         node: $node,
-            #         sender_type: $sender_type,
-            #         session_id: $session_id,
-            #         step: $step,
-            #         user_id: $user_id
-            #     }) {
-            #         affected_rows
-            #     }
-            #     }
-            #     """
-            
+        try:            
             query = """ mutation MyMutation($user_id: String!, $session_id: String!, $created_at: timestamp!, $title: String = "") {
                 insert_chat_sessions(objects: {user_id: $user_id, session_id: $session_id, created_at: $created_at, title: $title}, on_conflict: {constraint: chat_sessions_pkey, update_columns: []}) {
                     returning {
@@ -385,16 +340,21 @@ class HasuraMemory():
                 "query": query,
                 "variables": variables
             }
-            response = requests.post(self.hasura_url, json=payload, headers=self.headers)
+            response = requests.post(self.hasura_url, json=payload, headers=self.headers, timeout=10)
             response.raise_for_status()
             data = response.json()
             if "errors" in data:
                 print(f"Graphql Error: {data['errors']}")
-                return {"data":"No data"}
-            result = data.get("data", {})
-            return result
+                return {"data": "No data"}
+            return data.get("data", {})
+        except Timeout:
+            print("[run_query] Timeout occurred while calling Hasura.")
+            return {"data": "Timeout"}
+        except RequestException as e:
+            print(f"[run_query] Request error: {str(e)}")
+            return {"data": "RequestException"}
         except Exception as e:
-            print(f"GraphQL query error: {str(e)}")
+            print(f"[run_query] Unexpected error: {str(e)}")
             return None
 
     def validate_user_id(self, user_id):
@@ -444,3 +404,27 @@ class HasuraMemory():
         print("exists", exists)
         return bool(exists)
 
+    def add_feedback(self,conversation_id:str,session_id:str,feedback:str):
+
+        if feedback == "1":
+            query = """
+                        mutation MyMutation($conversation_id: String = "", $user_id: String = "", $session_id: String = "") {
+                update_chat_messages(where: {conversation_id: {_eq: $conversation_id}, user_id: {_eq: $user_id}, session_id: {_eq: $session_id}}, _set: {feedback: true}) {
+                    affected_rows
+                }
+                }
+            """
+        else:
+            query = """
+                        mutation MyMutation($conversation_id: String = "", $user_id: String = "", $session_id: String = "") {
+                update_chat_messages(where: {conversation_id: {_eq: $conversation_id}, user_id: {_eq: $user_id}, session_id: {_eq: $session_id}}, _set: {feedback: false}) {
+                    affected_rows
+                }
+                }
+            """
+
+        variables = {"conversation_id": conversation_id,"session_id":session_id,"user_id": self.user_id}
+        result = self.run_mutation(query, variables)
+        print("result", result)
+        return result
+    
