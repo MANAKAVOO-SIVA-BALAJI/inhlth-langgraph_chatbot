@@ -387,9 +387,9 @@ def build_graph(company_id,user_id):
             }
 
     def query_generate(state: AgentState):
-        print("query_generate is executing..")
-        for i in state.items():
-            print(i[0],":",i[1])    
+        logger.info("query_generate is executing...")
+        # for i in state.items():
+        #     print(i[0],":",i[1])    
         # return state    
         last_message = state["messages"][-1]
         if last_message.content.strip().startswith("[GraphQL Error]"):
@@ -404,21 +404,21 @@ def build_graph(company_id,user_id):
             response = llm_bind_tool.invoke([system_query_prompt_format] + [input_message]) 
         
         elif isinstance(last_message,ToolMessage):
-            print("query_generate: Tool response:", last_message.content)
+            # print("query_generate: Tool response:", last_message.content)
             input_message = HumanMessage(
             content=f"Response from tool: {last_message.content}"
             )
-            print("input_message: ",input_message)
+            # print("input_message: ",input_message)
 
             response = llm_bind_tool.invoke([system_query_prompt_format] + state["messages"] + [input_message]
 )
             # response = llm_bind_tool.invoke([system_query_prompt_format] +["User question :"+ state["messages"] +"\n"+ last_message.content])
-            print("state[messages]:", state["messages"])
+            # print("state[messages]:", state["messages"])
         else:
             json_data = {}
             try:
                 content = state["intent_planner_response"][0].strip()
-                print("query_generate: Intent planner output:", content)
+                # print("query_generate: Intent planner output:", content)
                 try:
                     json_data = json.loads(content)
                 except json.JSONDecodeError:
@@ -427,7 +427,7 @@ def build_graph(company_id,user_id):
                         corrected_content = re.sub(r"(\w+):", r'"\1":', content) 
                         json_data = json.loads(corrected_content)
                     except Exception:
-                        print("query_generate: Failed to parse intent planner output.")
+                        logger.error("query_generate: Failed to parse intent planner output.")
                         json_data = {
                             "rephrased_question": state["messages"][0].content,
                             "chain_of_thought": "No reasoning available.",
@@ -436,7 +436,7 @@ def build_graph(company_id,user_id):
 
                 required_keys = ["rephrased_question", "chain_of_thought"]
                 if not all(key in json_data for key in required_keys):
-                    print(f"query_generate: Missing required {required_keys}keys in intent response.")
+                    logger.info(f"query_generate: Missing required {required_keys}keys in intent response.")
 
                     json_data.setdefault("rephrased_question", state["messages"][0].content)
                     json_data.setdefault("chain_of_thought", "")
@@ -451,7 +451,7 @@ def build_graph(company_id,user_id):
                 )
 
             except Exception as e:
-                print("query_generate error:", e)
+                logger.error(f"query_generate error: {e}")
                 # fallback: use original user message
                 input_message = state["messages"][0]
                 # input_message = [first_message.content if hasattr(first_message, "content") else str(first_message)]
@@ -463,8 +463,9 @@ def build_graph(company_id,user_id):
         if not response.content and response.additional_kwargs.get("tool_calls"):
             tool_name = response.additional_kwargs["tool_calls"][0]["function"]["name"]
             response.content = f"Calling `{tool_name}` tool to process your request..."
+            response.additional_kwargs["tag"] = "tool_call"
 
-        print("Call_llm:", response.content)
+        # print("Call_llm:", response.content)
         # update state
         state["nodes"].append("query_generate")
         state["time"].append(store_datetime())

@@ -1,3 +1,4 @@
+# main.py
 import json
 import os
 import random
@@ -69,16 +70,16 @@ class ChatRequest(UserInfo):
             raise ValueError("Message cannot be empty")
         return v
     
-    ##handle the messages not from the current day
-    # @field_validator("session_id")
-    # def validate_session_id(cls, v):
-    #     """
-    #     Validator to ensure session ID is not empty.
-    #     """
-    #     if v !=get_session_id():
-    #         logger.error("Invalid session id")
-    #         raise ValueError("invalid session id")
-    #     return v
+    ##Handle the messages not from the current day
+    @field_validator("session_id")
+    def validate_session_id(cls, v):
+        """
+        Validator to ensure session ID is not empty.
+        """
+        if v !=get_session_id():
+            logger.error("Invalid session id")
+            raise ValueError("invalid session id")
+        return v
     
         
 class ChatResponse(BaseModel):
@@ -149,7 +150,6 @@ async def log_requests(request: Request, call_next):
         return JSONResponse({"error": "Unauthorized user"}, status_code=401)
 
     logger.info(f"Incoming request: {request.method} {request.url.path} (User: {user_id})")
-    print("Middleware request", request)
     try:
         response = await call_next(request)
     except Exception as e:
@@ -161,7 +161,6 @@ async def log_requests(request: Request, call_next):
 
     return response
 
-# @app.post("/ai_assistant/session_init")
 async def session_init(user_id: str,session_id):
     """
     Init endpoint - returns complete response at once
@@ -176,34 +175,13 @@ async def session_init(user_id: str,session_id):
     hasura_client = HasuraMemory(hasura_url=HASURA_GRAPHQL_URL, hasura_secret=HASURA_ADMIN_SECRET, hasura_role=HASURA_ROLE, user_id=user_id)
 
     initial_response = random.choice(WELCOME_MESSAGES)
-
+    
     variables = {
         "session_id": session_id,
         "user_id": user_id,
-        "metadata": {
-            "node": "default",
-            "step": -1,
-            "sender_type": "system"
-        },
-        "messages": {
-            "id": None,
-            "name": None,
-            "type": "system",
-            "content": initial_response,
-            "example": False,
-            "additional_kwargs": {
-                "tag": "default"
-            },
-            "response_metadata": {}
-        },
-        "sender_type": "system",
-        "node": "default",
-        "step": 0,
         "created_at":created_at,
-        "conversation_id": conversation_id, 
         "title": session_id 
     }
-    
     result = hasura_client.session_init(variables=variables)
     if not result:
         logger.error("Session init failed, unable to create session")
@@ -224,11 +202,9 @@ async def process_normal_message(req: ChatRequest):
     session_exists = hasura_client.check_session_exists(req.session_id)
     print("session_exists", session_exists)
     if not session_exists:
-        return await session_init(req.user_id,req.session_id)
+        session_response = await session_init(req.user_id, req.session_id)
+
     
-    # return {"response":f"Session exist: {session_exists}","session_id":req.session_id,"timestamp":req.timestamp}
-
-
     try:
         response = generate_chat_response(req, config)
         return ChatResponse(
@@ -256,17 +232,17 @@ You can ask me to analyze blood supply data, order statuses, or monthly billing 
 • "Pending orders by Blood Bank A"
 • "Orders for plasma in June"
 """,
-    """📊 Hello! I'm Inhlth Assistant.
+    """Hello! I'm Inhlth Assistant.
 Need data insights on blood orders, costs, or deliveries? Ask something like:
 • "How many deliveries happened last month?"
 • "Give me stats for AB+ blood group"
 """,
-    """🧬 Welcome back to Inhlth Assistant!
+    """ Welcome back to Inhlth Assistant!
 I'm ready to help with data analysis and order tracking. You can start with:
 • "Show cost summary for last month"
 • "Track O negative orders"
 """,
-    """🧾 Hello from Inhlth Assistant!
+    """ Hello from Inhlth Assistant!
 Ask me anything about blood orders or billing insights. For example:
 • "Orders rejected this week"
 • "Total cost for red blood cells"

@@ -1,3 +1,4 @@
+#graphql_memory.py
 import json
 import uuid
 from typing import Any, Dict, List, Optional
@@ -9,6 +10,8 @@ from langchain_core.messages import (  #type: ignore
     SystemMessage,
     ToolMessage,
 )
+import requests
+from requests.exceptions import Timeout, RequestException
 
 from cache import memory_cache
 from logging_config import setup_logger
@@ -178,31 +181,27 @@ class HasuraMemory():
                 "query": graphql_query,
                 "variables": variables
             }
-
-            # print(f"[GET_TUPLE] Extracted - thread_id: {thread_id}")
-
             try:
-                response = requests.post(self.hasura_url, json=payload, headers=self.headers)
+                response = requests.post(self.hasura_url, json=payload, headers=self.headers, timeout=10)
                 response.raise_for_status()
                 data = response.json()
-                if "errors" in data:
-                    print(f"[GET_MESSAGES] Error : {data['errors']}")
-                    return []
                 records = data.get("data", {}).get("chat_messages", [])
                 if not records:
                     print(f"[GET] No data found for thread_id: {thread_id}")
                     return None
                 print("records:",len(records), records[0] if records else "No records found")
 
+            except Timeout:
+                print("[get_messages] Timeout occurred while calling Hasura.")
+                return []
+            except RequestException as e:
+                print(f"[get_messages] Request error: {e}")
+                return []
             except Exception as e:
-                print(f"[GET] Error retrieving checkpoint from Hasura: {e}")
+                print(f"[get_messages] Unexpected error: {e}")
                 return []
             
-            print(f"[GET_MESSAGES] Extracted - thread_id: {thread_id}")
-  
             serialized_history = self.deserialize_history(records)
-            # print("Deserialized history:", serialized_history[0] if serialized_history else "No history found")
-
             memory_cache.store_message(thread_id, serialized_history)
 
             return serialized_history
@@ -215,13 +214,15 @@ class HasuraMemory():
         thread_id = config.get("configurable", {}).get("thread_id", "unknown")
 
         graphql_query = """query MyQuery($thread_id: String) {
-            chat_messages(where: {session_id: {_eq: $thread_id}, sender_type: {_in: ["system","user", "final_response"]}}) {
+            chat_messages(where: {session_id: {_eq: $thread_id}, sender_type: {_in: ["user", "final_response"]}}, order_by: {created_at: asc}) {
                 role: messages(path: "type")
+                node
                 content: messages(path: "content")
                 created_at
                 conversation_id
             }
             }
+
             """
         
         variables= {
@@ -232,9 +233,8 @@ class HasuraMemory():
             "query": graphql_query,
             "variables": variables
         }
-
         try:
-            response = requests.post(self.hasura_url, json=payload, headers=self.headers)
+            response = requests.post(self.hasura_url, json=payload, headers=self.headers, timeout=10)
             response.raise_for_status()
             data = response.json()
             if "errors" in data:
@@ -244,13 +244,17 @@ class HasuraMemory():
             if not records:
                 print(f"[GET_HISTORY] No data found for thread_id: {thread_id}")
                 return []
-
-        except Exception as e:
-            print(f"[GET_HISTORY] Error retrieving checkpoint from Hasura: {e}")
+                      
+        except Timeout:
+            print("[get_messages] Timeout occurred while calling Hasura.")
             return []
-        
-        print(f"[GET_HISTORY] Extracted - thread_id: {thread_id}")
-
+        except RequestException as e:
+            print(f"[get_messages] Request error: {e}")
+            return []
+        except Exception as e:
+            print(f"[get_messages] Unexpected error: {e}")
+            return []
+        logger.info(f"[GET_HISTORY] Extracted - thread_id: {thread_id}")
         return records if isinstance(records, list) else [records]
 
     def get_session_list(self) -> List:
@@ -281,88 +285,87 @@ class HasuraMemory():
 
     def run_query(self, query, variables=None):
         try:
-            # gql_query = gql(query) #parse the graphQl query string to a gql object
             payload = {
                 "query": query,
                 "variables": variables
             }
-            response = requests.post(self.hasura_url, json=payload, headers=self.headers)
+            response = requests.post(self.hasura_url, json=payload, headers=self.headers, timeout=10)
             response.raise_for_status()
             data = response.json()
             if "errors" in data:
                 print(f"Graphql Error: {data['errors']}")
-                return {"data":"No data"}
-            result = data.get("data", {})
-            print("Run query result:", result)
-            return result
+                return {"data": "No data"}
+            return data.get("data", {})
+        except Timeout:
+            print("[run_query] Timeout occurred while calling Hasura.")
+            return {"data": "Timeout"}
+        except RequestException as e:
+            print(f"[run_query] Request error: {str(e)}")
+            return {"data": "RequestException"}
         except Exception as e:
-            print(f"GraphQL query error: {str(e)}")
+            print(f"[run_query] Unexpected error: {str(e)}")
             return None
 
     def session_init(self, variables):
         print("Session initiated")
 
         try:
-            # query= """
-            #     mutation MyMutation($user_id: String!, $session_id: String!, $created_at: timestamp!, $conversation_id: String!, $messages: jsonb!, $metadata: jsonb!, $node: String!, $sender_type: String!, $step: Int!) {
-            #     insert_chat_sessions(objects: {user_id: $user_id, session_id: $session_id, created_at: $created_at}) {
+            
+            # query = """ mutation MyMutation(
+            #     $user_id: String!,
+            #     $session_id: String!,
+            #     $created_at: timestamp!,
+            #     $conversation_id: String!,
+            #     $messages: jsonb!,
+            #     $metadata: jsonb!,
+            #     $node: String!,
+            #     $sender_type: String!,
+            #     $step: Int!,
+            #     $title: String = ""
+            #     ) {
+            #     insert_chat_sessions(
+            #         objects: {
+            #         user_id: $user_id,
+            #         session_id: $session_id,
+            #         created_at: $created_at,
+            #         title: $title
+            #         },
+            #         on_conflict: {
+            #         constraint: chat_sessions_pkey,  # <-- Primary key constraint name
+            #         update_columns: []               # <-- Don't update anything
+            #         }
+            #     ) {
             #         returning {
             #         session_id
             #         created_at
             #         }
             #     }
-            #     insert_chat_messages(objects: {conversation_id: $conversation_id, created_at: $created_at, messages: $messages, metadata: $metadata, node: $node, sender_type: $sender_type, session_id: $session_id, step: $step, user_id: $user_id}) {
+
+            #     insert_chat_messages(objects: {
+            #         conversation_id: $conversation_id,
+            #         created_at: $created_at,
+            #         messages: $messages,
+            #         metadata: $metadata,
+            #         node: $node,
+            #         sender_type: $sender_type,
+            #         session_id: $session_id,
+            #         step: $step,
+            #         user_id: $user_id
+            #     }) {
             #         affected_rows
             #     }
             #     }
-            #      """
+            #     """
             
-            query = """ mutation MyMutation(
-                $user_id: String!,
-                $session_id: String!,
-                $created_at: timestamp!,
-                $conversation_id: String!,
-                $messages: jsonb!,
-                $metadata: jsonb!,
-                $node: String!,
-                $sender_type: String!,
-                $step: Int!,
-                $title: String = ""
-                ) {
-                insert_chat_sessions(
-                    objects: {
-                    user_id: $user_id,
-                    session_id: $session_id,
-                    created_at: $created_at,
-                    title: $title
-                    },
-                    on_conflict: {
-                    constraint: chat_sessions_pkey,  # <-- Primary key constraint name
-                    update_columns: []               # <-- Don't update anything
-                    }
-                ) {
+            query = """ mutation MyMutation($user_id: String!, $session_id: String!, $created_at: timestamp!, $title: String = "") {
+                insert_chat_sessions(objects: {user_id: $user_id, session_id: $session_id, created_at: $created_at, title: $title}, on_conflict: {constraint: chat_sessions_pkey, update_columns: []}) {
                     returning {
                     session_id
                     created_at
                     }
                 }
-
-                insert_chat_messages(objects: {
-                    conversation_id: $conversation_id,
-                    created_at: $created_at,
-                    messages: $messages,
-                    metadata: $metadata,
-                    node: $node,
-                    sender_type: $sender_type,
-                    session_id: $session_id,
-                    step: $step,
-                    user_id: $user_id
-                }) {
-                    affected_rows
-                }
                 }
                 """
-
             variables= variables
             data = self.run_mutation(query, variables)
             print("session_init_data", data)
@@ -426,16 +429,18 @@ class HasuraMemory():
 
     def check_session_exists(self, session_id: str) -> bool:
         query = """
-        query CheckSession($session_id: String!) {
-            chat_sessions_by_pk(session_id: $session_id) {
-                session_id
-            }
+        query MyQuery($session_id: String = "", $user_id: String = "") {
+        chat_sessions(where: {_and: {session_id: {_eq: $session_id}}, user_id: {_eq: $user_id}}) {
+            user_id
+            session_id
         }
+        }
+
         """
-        variables = {"session_id": session_id}
+        variables = {"session_id": session_id,"user_id": self.user_id}
         result = self.run_query(query, variables)
         print("result", result)
-        exists = result.get("chat_sessions_by_pk")
+        exists = result.get("chat_sessions", [])
         print("exists", exists)
         return bool(exists)
 
