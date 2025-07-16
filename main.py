@@ -46,12 +46,17 @@ class UserRole(str, Enum):
     HOSPITAL = "HOSPITAL"
     BLOOD_BANK = "BLOOD_BANK"
 
+class company_type(str, Enum):
+    HOSPITAL = "HOSPITAL"
+    BLOODBANK = "BLOODBANK"
+
 def date_time():
     return datetime.now().isoformat()
 
 class UserInfo(BaseModel):
     user_id: str = Field()
     company_id: str = Field()
+    company_type: company_type
 
 class ChatRequest(UserInfo):
     """
@@ -89,7 +94,7 @@ class ChatResponse(BaseModel):
     session_id: str = Field(default=get_session_id())
     response: str = Field(..., description="The chatbot's response to the user's message")
     created_at: str = Field(default_factory=get_current_datetime)
-    conversation_id: Optional[str] = Field(..., description="Conversation ID for each request")
+    conversation_id: str = Field(..., description="Conversation ID for each request")
 
 class HistoryRequest(BaseModel):
     """
@@ -104,9 +109,9 @@ class HistoryResponse(BaseModel):
     """
     messages: list = Field(..., description="List of chat messages in the session")
 
-class FeedbackEnum(str, Enum):
-    zero = "0"
-    one = "1"
+class FeedbackEnum(int, Enum):
+    zero = 0
+    one = 1
 
 class FeedbackRequest(BaseModel):
     user_id: str = Field(..., description="User ID")
@@ -217,7 +222,7 @@ async def process_normal_message(req: ChatRequest):
         session_response = await session_init(req.user_id, req.session_id)
     
     conversation_id = get_message_unique_id()
-
+    
     try:
         response = generate_chat_response(chat_request = req,config = config,conversation_id=conversation_id)
         return ChatResponse(

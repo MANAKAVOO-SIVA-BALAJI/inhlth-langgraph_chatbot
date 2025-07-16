@@ -152,7 +152,7 @@ class HasuraMemory():
                     return []
             print("[PUT] Success:", response.json())
 
-            memory_cache.store_message(thread_id, cache_messages)
+            memory_cache.store_message(self.user_id, cache_messages)
         except Exception as e:
             print(f"[PUT] Error inserting checkpoint into Hasura: {e}")
 
@@ -161,7 +161,7 @@ class HasuraMemory():
             print("[GET_MESSAGES] Called with arguments:")
             print(f"  config: {config}")
             thread_id = config.get("configurable", {}).get("thread_id", "unknown")
-            records_cache = memory_cache.get_history(thread_id)
+            records_cache = memory_cache.get_history(self.user_id)
             if records_cache:
                 print(f"[GET_MESSAGES] Found {len(records_cache)} messages in cache for thread_id: {thread_id}")
                 return records_cache
@@ -202,7 +202,7 @@ class HasuraMemory():
                 return []
             
             serialized_history = self.deserialize_history(records)
-            memory_cache.store_message(thread_id, serialized_history)
+            memory_cache.store_message(self.user_id, serialized_history)
 
             return serialized_history
 
@@ -406,7 +406,7 @@ class HasuraMemory():
 
     def add_feedback(self,conversation_id:str,session_id:str,feedback:str):
 
-        if feedback == "1":
+        if int(feedback) == 1:
             query = """
                         mutation MyMutation($conversation_id: String = "", $user_id: String = "", $session_id: String = "") {
                 update_chat_messages(where: {conversation_id: {_eq: $conversation_id}, user_id: {_eq: $user_id}, session_id: {_eq: $session_id}}, _set: {feedback: true}) {

@@ -15,7 +15,7 @@ from langgraph.graph import END, StateGraph  # type: ignore
 from config import HASURA_ADMIN_SECRET, HASURA_GRAPHQL_URL, HASURA_ROLE
 from graphql_memory import HasuraMemory
 from logging_config import setup_logger
-from nodes import (
+from blood_nodes import (
     AgentState,
     clarify,
     data_analyser,
@@ -24,7 +24,7 @@ from nodes import (
     llm,
     should_continue,
 )
-from prompt import system_intent_prompt, system_query_prompt_format , system_intent_prompt2
+from blood_prompt import blood_system_intent_prompt, blood_System_query_prompt_format , blood_system_intent_prompt2
 from utils import store_datetime ,get_current_datetime
 
 logger = setup_logger()
@@ -39,7 +39,7 @@ class SafeGraphQLWrapper:
         except Exception as e:
             return f"[GraphQL Error] {str(e)} When running this query: {query}. The query might be malformed or the field might not exist."
 
-def build_graph(company_id,user_id):
+def blood_build_graph(company_id,user_id):
     graphql_client = HasuraMemory(
         hasura_url=HASURA_GRAPHQL_URL,
         hasura_secret=HASURA_ADMIN_SECRET,
@@ -73,7 +73,7 @@ def build_graph(company_id,user_id):
 
         query = """
         query GetOrdersByIds($order_ids: [String!]!) {
-        blood_order_view(where: {request_id: {_in: $order_ids}}) {
+        blood_bank_order_view(where: {request_id: {_in: $order_ids}}) {
             request_id
             status
             blood_group
@@ -84,7 +84,7 @@ def build_graph(company_id,user_id):
             first_name
             last_name
             order_line_items
-            blood_bank_name
+            hospital_name
         }
         }
         """
@@ -92,6 +92,7 @@ def build_graph(company_id,user_id):
         result = graphql_client.run_query(query, variables)
         return result
 
+    
     #Query node tools
     @tool
     def get_orders_by_statuses(statuses: list[str], limit: int = 5, offset: int = 0):
@@ -99,13 +100,14 @@ def build_graph(company_id,user_id):
         Fetch orders filtered by their status codes.
         Supports multiple statuses and pagination.
         ["CMP", "PA", "CAL", "REJ", "CAN","AA","BBA","BA","BSP","BP"]
+        with default limit of 5
         """
         name = "get_orders_by_statuses"
         description = "Fetch orders based on multiple status codes like CMP, PA, CAL, etc."
 
         query = """
         query GetOrdersByStatuses($statuses: [orderstatusenum!]!, $limit: Int = 5, $offset: Int = 0) {
-        blood_order_view(
+        blood_bank_order_view(
             where: {status: {_in: $statuses}},
             limit: $limit,
             offset: $offset
@@ -113,8 +115,9 @@ def build_graph(company_id,user_id):
             request_id
             status
             creation_date_and_time
-            first_name
-            last_name
+            blood_group
+            hospital_name
+            order_line_items
         }
         }
         """
@@ -127,14 +130,14 @@ def build_graph(company_id,user_id):
         """
         Get current active orders (excluding completed, rejected, or cancelled).
         Used for general list display or pagination.
-
+        with default limit of 5
         """
         name = "get_current_orders_data"
         description = "List active orders (not completed, rejected, or cancelled). Supports pagination."
 
         query = """
         query GetCurrentOrders($limit: Int = 5, $offset: Int = 0) {
-        blood_order_view(
+        blood_bank_order_view(
             where: {status: {_nin: ["CMP", "REJ", "CAL"]}},
             limit: $limit,
             offset: $offset
@@ -142,7 +145,7 @@ def build_graph(company_id,user_id):
             request_id
             status
             blood_group
-            blood_bank_name
+            hospital_name
             order_line_items
             creation_date_and_time
             delivery_date_and_time
@@ -177,80 +180,34 @@ def build_graph(company_id,user_id):
         result = graphql_client.run_query(query, variables)
         return result
 
-    @tool
-    def get_patient_by_blood_groups(groups: list[str]):
-        """
-        Retrieve patient information for one or more blood groups.
-        Helps find all patients with specific blood types.
-        Search patients based on one or more blood groups like ['A+', 'B-'].
-        """
-        name = "get_patient_by_blood_groups"
-        description = "Search patients based on one or more blood groups like ['A+', 'B-']."
-
-        query = """
-        query GetPatientsByBloodGroup($groups: [String!]!) {
-        blood_order_view(where: {blood_group: {_in: $groups}}) {
-            first_name
-            last_name
-            blood_group
-            request_id
-            status
-        }
-        }
-        """
-        variables = {"groups": groups}
-        result = graphql_client.run_query(query, variables)
-        return result
-
-    @tool
-    def get_recent_order_ids(limit: int = 5):
-        """
-        Provide a list of recent order IDs. Useful when users input invalid IDs or ask for suggestions.
-        you can use this tool to get recent order IDs
-        """
-        name = "get_recent_order_ids"
-        description = "List the most recent order IDs. Used when users need to see available orders."
-
-        query = """
-        query GetRecentOrderIds($limit: Int = 5) {
-        blood_order_view(order_by: {creation_date_and_time: desc}, limit: $limit) {
-            request_id
-            creation_date_and_time
-        }
-        }
-        """
-        variables = {"limit": limit}
-        result = graphql_client.run_query(query, variables)
-        return result
+    
 
     def get_possible_values():
+
         query=""" query GetFilterOptions {
-            bank_names: blood_order_view(distinct_on: blood_bank_name) {
-                blood_bank_name
+            bank_names: blood_bank_order_view(distinct_on: hospital_name) {
+                hospital_name
             }
-            blood_groups: blood_order_view(distinct_on: blood_group) {
+            blood_groups: blood_bank_order_view(distinct_on: blood_group) {
                 blood_group
             }
-            reasons: blood_order_view(distinct_on: reason) {
+            reasons: blood_bank_order_view(distinct_on: reason) {
                 reason
             }
-            statuses: blood_order_view(distinct_on: status) {
+            statuses: blood_bank_order_view(distinct_on: status) {
                 status
             }
             } """
         
         result = graphql_client.run_query(query)
-        # logger.info(f"get_possible_values: {result}")
+        # print("blood bank get_possible_values: ",result)
         return result
     
-    tools = [get_order_details_by_ids,get_orders_by_statuses,get_current_orders_data,get_monthly_billing,get_patient_by_blood_groups,get_recent_order_ids]
-    from langgraph.prebuilt import ToolNode
 
-    tool_node = ToolNode(tools=tools)
-
-    tools_list = [safe_graphql_tool,get_order_details_by_ids,get_orders_by_statuses,get_current_orders_data,get_monthly_billing,get_patient_by_blood_groups,get_recent_order_ids]
+    tools_list = [safe_graphql_tool,get_order_details_by_ids,get_orders_by_statuses,get_current_orders_data,get_monthly_billing]
 
     llm_bind_tool=llm.bind_tools(tools_list)
+    
 
     tool_map = {tool.name: tool for tool in tools_list}
 
@@ -265,7 +222,7 @@ def build_graph(company_id,user_id):
             data = possible_values
 
             # Extract and flatten the field values
-            bank_names = [item["blood_bank_name"] for item in data.get("bank_names", [])]
+            bank_names = [item["hospital_name"] for item in data.get("bank_names", [])]
             blood_groups = [item["blood_group"] for item in data.get("blood_groups", [])]
             reasons = [item["reason"] for item in data.get("reasons", [])]
             statuses = [item["status"] for item in data.get("statuses", [])]
@@ -273,11 +230,9 @@ def build_graph(company_id,user_id):
             # Build a formatted string to guide the LLM
             field_context = f"""
             VALID FIELDS AND VALUES
-
-            You must validate these restricted fields using exact or normalized values.
-
+            You must validate these restricted fields using exact or normalized values. If the user provides a value outside of these, ask for clarification.
             Valid values for field validation:
-                - `blood_bank_name` (accepted blood banks): {bank_names}
+                - `hospital_name` (requested Hospital): {bank_names}
                 - `blood_group`: {blood_groups}
                 - `reason` (Cause of request): {reasons}
                 - `status` (upcoming status): {statuses}
@@ -285,10 +240,10 @@ def build_graph(company_id,user_id):
                   [Single Donor Platelet, Platelet Concentrate, Packed Red Cells, Whole Human Blood, Platelet Rich Plasma, Fresh Frozen Plasma, Cryo Precipitate] 
                 - current time for Time based fields: {get_current_datetime()}
                         """.strip()
-
+            
             # Compose the final prompt input to LLM
             full_prompt = [
-                SystemMessage(content=system_intent_prompt + field_context + system_intent_prompt2),
+                SystemMessage(content=blood_system_intent_prompt + field_context + blood_system_intent_prompt2),
                 *state["messages"]
             ]
 
@@ -336,7 +291,7 @@ def build_graph(company_id,user_id):
                 Please fix the query.
                 """
             )
-            response = llm_bind_tool.invoke([system_query_prompt_format] + [input_message]) 
+            response = llm_bind_tool.invoke([blood_System_query_prompt_format] + [input_message]) 
         
         elif isinstance(last_message,ToolMessage):
             # print("query_generate: Tool response:", last_message.content)
@@ -345,9 +300,9 @@ def build_graph(company_id,user_id):
             )
             # print("input_message: ",input_message)
 
-            response = llm_bind_tool.invoke([system_query_prompt_format] + state["messages"] + [input_message]
+            response = llm_bind_tool.invoke([blood_System_query_prompt_format] + state["messages"] + [input_message]
 )
-            # response = llm_bind_tool.invoke([system_query_prompt_format] +["User question :"+ state["messages"] +"\n"+ last_message.content])
+            # response = llm_bind_tool.invoke([blood_System_query_prompt_format] +["User question :"+ state["messages"] +"\n"+ last_message.content])
             # print("state[messages]:", state["messages"])
         else:
             json_data = {}
@@ -392,7 +347,7 @@ def build_graph(company_id,user_id):
                 # input_message = [first_message.content if hasattr(first_message, "content") else str(first_message)]
 
             
-            response = llm_bind_tool.invoke([system_query_prompt_format, input_message])
+            response = llm_bind_tool.invoke([blood_System_query_prompt_format, input_message])
 
         # handle tool_call message if no content
         if not response.content and response.additional_kwargs.get("tool_calls"):
@@ -483,6 +438,3 @@ def build_graph(company_id,user_id):
     graph.get_graph(xray=True).draw_mermaid_png(output_file_path="graph.png")
     return graph
 
-# user_id = "USR-3K2HD8DHYH"
-# company_id = "CMP-RRPZYICLEG"
-# graph=build_graph(company_id,user_id)

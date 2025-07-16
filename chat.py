@@ -6,6 +6,7 @@ from langsmith.run_helpers import traceable  # type: ignore
 
 from config import HASURA_ADMIN_SECRET, HASURA_GRAPHQL_URL, HASURA_ROLE
 from graph_builder import build_graph
+from blood_graph_builder import blood_build_graph
 from graphql_memory import HasuraMemory
 from logging_config import setup_logger
 from utils import get_message_unique_id, store_datetime
@@ -22,6 +23,7 @@ def generate_chat_response(chat_request, config: Dict[str, Any], conversation_id
       # Use as trace_id
 
     user_id = chat_request.user_id
+    company_type = chat_request.company_type
 
     try:
         from langsmith import utils  # type: ignore
@@ -45,7 +47,14 @@ def generate_chat_response(chat_request, config: Dict[str, Any], conversation_id
 
         #build graph
         try:
-            graph = build_graph(chat_request.company_id, chat_request.user_id)
+            if company_type == "BLOODBANK":
+                logger.info("BLOODBANK")
+                graph = blood_build_graph(chat_request.company_id, chat_request.user_id)
+
+            else:
+                logger.info("HOSPITAL")
+                graph = build_graph(chat_request.company_id, chat_request.user_id)
+                
         except Exception as e:
             logger.error(f"[trace_id={conversation_id}] Failed to build graph for user_id={user_id}: {e}")
             return "Something went wrong. Please try again later."
