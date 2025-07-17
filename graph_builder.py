@@ -18,14 +18,12 @@ from logging_config import setup_logger
 from nodes import (
     AgentState,
     clarify,
-    data_analyser,
     general_response,
     intent_planner_decision,
-    llm,
-    should_continue,
+    llm
 )
-from prompt import system_intent_prompt, system_query_prompt_format , system_intent_prompt2
-from utils import store_datetime ,get_current_datetime
+from prompt import system_intent_prompt, system_query_prompt_format , system_intent_prompt2,system_short_data_analysis_prompt_format
+from utils import store_datetime ,get_current_datetime,format_hospital_orders_for_llm
 
 logger = setup_logger()
 
@@ -325,7 +323,7 @@ def build_graph(company_id,user_id):
         logger.info("query_generate is executing...")
         # for i in state.items():
         #     print(i[0],":",i[1])    
-        # return state    
+        return state    
         last_message = state["messages"][-1]
         if last_message.content.strip().startswith("[GraphQL Error]"):
             print("GraphQl Error: ",last_message.content)
@@ -411,6 +409,31 @@ def build_graph(company_id,user_id):
             "time": state["time"]
         }
 
+    def data_analyser(state: AgentState):
+        logger.info("data_analyser is executing..")
+        try:
+            over_all_data = graphql_client.get_all_data("hospital")
+            formatted_data=""
+            try:
+                if over_all_data is not None and len(over_all_data) > 0:
+                    formatted_data = format_hospital_orders_for_llm(over_all_data)
+            except Exception as e:
+                logger.error(f"data_analyser error formatting: {e}")
+                formatted_data = ""
+
+            rephrased_question = json.loads(state["intent_planner_response"][0]).get("rephrased_question","")
+            user_message= rephrased_question if rephrased_question else state["messages"][0]
+            response = llm.invoke([system_short_data_analysis_prompt_format]+["User question : ",user_message,"Data : "+formatted_data+"\nResponse: "])
+
+        except Exception as e:
+            logger.error(f"data_analyser error: {e}")
+            response = llm.invoke([system_short_data_analysis_prompt_format]+state["messages"])
+
+        # print("data_analyser: ",response.content)
+        state["nodes"].append("data_analyser")
+        state["time"].append(store_datetime())
+        return {"messages": state["messages"] + [AIMessage(content=response.content)],"nodes":state["nodes"],"time":state["time"]}
+
     def call_tool(state: AgentState):
         last_ai_message = state["messages"][-1]
         
@@ -455,7 +478,7 @@ def build_graph(company_id,user_id):
     sample_builder.add_node("query_generate", query_generate)
     sample_builder.add_node("general_response", general_response)
     sample_builder.add_node("data_analyser", data_analyser)
-    sample_builder.add_node("graphql_tool", call_tool)
+    # sample_builder.add_node("graphql_tool", call_tool)
     sample_builder.add_node("clarify", clarify)
 
     sample_builder.add_conditional_edges("intent_planner", intent_planner_decision,
@@ -465,13 +488,13 @@ def build_graph(company_id,user_id):
             "clarification": "clarify"
         }
     )
-   
-    sample_builder.add_conditional_edges("query_generate", should_continue, {
-        "tool_call": "graphql_tool",
-        "data": "data_analyser"
-    })
+    sample_builder.add_edge("query_generate", "data_analyser")
+    # sample_builder.add_conditional_edges("query_generate", should_continue, {
+    #     "tool_call": "graphql_tool",
+    #     "data": "data_analyser"
+    # })
 
-    sample_builder.add_edge("graphql_tool", "query_generate")
+    # sample_builder.add_edge("graphql_tool", "query_generate")
     sample_builder.add_edge("data_analyser",END)
     sample_builder.add_edge("general_response",END)
     sample_builder.add_edge("clarify",END)
@@ -480,7 +503,7 @@ def build_graph(company_id,user_id):
 
     graph=sample_builder.compile() 
     
-    graph.get_graph(xray=True).draw_mermaid_png(output_file_path="graph.png")
+    # graph.get_graph(xray=True).draw_mermaid_png(output_file_path="hospital_graph.png")
     return graph
 
 # user_id = "USR-3K2HD8DHYH"

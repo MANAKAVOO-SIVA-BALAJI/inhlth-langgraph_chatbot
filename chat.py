@@ -72,7 +72,7 @@ def generate_chat_response(chat_request, config: Dict[str, Any], conversation_id
         except Exception as e:
             logger.error(f"[trace_id={conversation_id}] Failed to fetch message history for user_id={user_id}: {e}")
             history = []
-        
+        history = []
         history_length = len(history) if history else 0
         logger.info(f" Retrieved history for user_id={user_id}, length={history_length}")
 

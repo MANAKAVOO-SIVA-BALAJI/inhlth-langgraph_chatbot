@@ -227,7 +227,7 @@ async def process_normal_message(req: ChatRequest):
         response = generate_chat_response(chat_request = req,config = config,conversation_id=conversation_id)
         return ChatResponse(
             session_id=req.session_id,
-            response=response,
+            response=response.replace("*", ""),
             created_at=get_current_datetime(),
             conversation_id=conversation_id
         )
@@ -282,6 +282,8 @@ async def health_check():
         "endpoints": {
             "normal_chat": "/ai_assistant/chat",
             "history": "/ai_assistant/get_session_messages",
+            "feedback": "/ai_assistant/feedback",
+            "session_list": "/ai_assistant/get_session_list",
             "health": "/ai_assistant/health",
             "test": "/ai_assistant"
         }
@@ -308,7 +310,7 @@ async def chat_endpoint(req: ChatRequest):
     """
     Normal chat endpoint - returns complete response at once
     """
-    logger.info(f"Chat Request: {req}")
+    # logger.info(f"Chat Request: {req}")
     
     result = await process_normal_message(req)
     return result
