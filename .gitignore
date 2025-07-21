@@ -7,8 +7,6 @@ practise.doc
 Dockerfile
 .dockerignore
 .env
-hospital_graph.png
-blood_graph.png
 *.so
 practise.py
 dev_requirements.txt

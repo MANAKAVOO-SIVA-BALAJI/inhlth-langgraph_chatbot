@@ -167,7 +167,7 @@ class HasuraMemory():
                 return records_cache
 
             graphql_query = """query MyQuery($thread_id: String) {
-                chat_messages(where: {session_id: {_eq: $thread_id}, sender_type: {_in: ["user","final_response"]}}, limit: 6) {
+                chat_messages(where: {session_id: {_eq: $thread_id}, sender_type: {_in: ["user","final_response"]}}, limit: 10) {
                     messages
                 }
                 }
@@ -296,14 +296,14 @@ class HasuraMemory():
             data = response.json()
             if "errors" in data:
                 print(f"Graphql Error: {data['errors']}")
-                return {"error": "No data"}
+                return {"data": "No data"}
             return data.get("data", {})
         except Timeout:
             print("[run_query] Timeout occurred while calling Hasura.")
-            return {"errors": "Timeout"}
+            return {"data": "Timeout"}
         except RequestException as e:
             print(f"[run_query] Request error: {str(e)}")
-            return {"errors": "RequestException"}
+            return {"data": "RequestException"}
         except Exception as e:
             print(f"[run_query] Unexpected error: {str(e)}")
             return None
@@ -428,49 +428,3 @@ class HasuraMemory():
         print("result", result)
         return result
     
-    def get_all_data(self,role: str ):
-        if role == "bloodbank":
-            query = """
-                query MyQuery {
-            blood_bank_order_view(order_by: {creation_date_and_time: desc, delivery_date_and_time: asc_nulls_first}, limit: 30) {
-                age
-                blood_group
-                creation_date_and_time
-                delivery_date_and_time
-                first_name
-                hospital_name
-                last_name
-                order_line_items
-                patient_id
-                reason
-                status
-                request_id
-            }
-            }
-            """
-        
-        elif role == "hospital":
-            query = """
-                query MyQuery {
-            blood_order_view(order_by: {creation_date_and_time: desc, delivery_date_and_time: asc_nulls_first}, limit: 30) {
-                age
-                blood_group
-                creation_date_and_time
-                delivery_date_and_time
-                first_name
-                blood_bank_name
-                last_name
-                order_line_items
-                patient_id
-                reason
-                status
-                request_id
-            }
-            }
-            """
-        
-        result = self.run_query(query, variables=None)
-        
-        return result
-
- 
