@@ -126,8 +126,8 @@ app = FastAPI(title="Inhlth AI Chatbot API",
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
-    allow_credentials=True,
+    allow_origins=["*","null"],  
+    allow_credentials=False,
     allow_methods=["*"],  
     allow_headers=["*"],  
 )
@@ -138,7 +138,8 @@ def is_valid_user(user_id:str)-> bool:
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start_time = time.time()  # Track start time
-
+    if request.method == "OPTIONS":
+        return await call_next(request)
     # Read and preserve request body
     try:
         body_bytes = await request.body()
@@ -311,7 +312,7 @@ async def chat_endpoint(req: ChatRequest):
     logger.info(f"Chat Request: {req}")
     
     result = await process_normal_message(req)
-    return result
+    return  result
 
 @app.post("/ai_assistant/get_session_messages")
 async def get_session_messages(req: HistoryRequest): 

@@ -59,127 +59,6 @@ def blood_build_graph(company_id,user_id):
     func=SafeGraphQLWrapper(endpoint=HASURA_GRAPHQL_URL,headers=headers).run,
     description="Executes GraphQL queries to retrive data. Returns error messages if the query is invalid."
     )
-
-    @tool
-    def get_order_details_by_ids(order_ids: list[str]):
-        """
-        Given a list of order IDs like ['ORD-HGK90BK', 'ORD-GSHK90BK'], 
-        returns full order information including blood type, delivery time, and status.
-        Useful when user refers to multiple specific orders.
-
-        """
-        name = "get_order_details_by_ids"
-        description="Given a list of order IDs like ['ORD-HGK90BK', 'ORD-GSHK90BK'], returns full order information including blood type, delivery time, and status. Useful when user refers to multiple specific orders."
-
-        query = """
-        query GetOrdersByIds($order_ids: [String!]!) {
-        blood_bank_order_view(where: {request_id: {_in: $order_ids}}) {
-            request_id
-            status
-            blood_group
-            creation_date_and_time
-            delivery_date_and_time
-            reason
-            patient_id
-            first_name
-            last_name
-            order_line_items
-            hospital_name
-        }
-        }
-        """
-        variables = {"order_ids": order_ids}
-        result = graphql_client.run_query(query, variables)
-        return result
-
-    
-    #Query node tools
-    @tool
-    def get_orders_by_statuses(statuses: list[str], limit: int = 5, offset: int = 0):
-        """
-        Fetch orders filtered by their status codes.
-        Supports multiple statuses and pagination.
-        ["CMP", "PA", "CAL", "REJ", "CAN","AA","BBA","BA","BSP","BP"]
-        with default limit of 5
-        """
-        name = "get_orders_by_statuses"
-        description = "Fetch orders based on multiple status codes like CMP, PA, CAL, etc."
-
-        query = """
-        query GetOrdersByStatuses($statuses: [orderstatusenum!]!, $limit: Int = 5, $offset: Int = 0) {
-        blood_bank_order_view(
-            where: {status: {_in: $statuses}},
-            limit: $limit,
-            offset: $offset
-        ) {
-            request_id
-            status
-            creation_date_and_time
-            blood_group
-            hospital_name
-            order_line_items
-        }
-        }
-        """
-        variables = {"statuses": statuses, "limit": limit, "offset": offset}
-        result = graphql_client.run_query(query, variables)
-        return result
-
-    @tool
-    def get_current_orders_data(limit: int = 5, offset: int = 0):
-        """
-        Get current active orders (excluding completed, rejected, or cancelled).
-        Used for general list display or pagination.
-        with default limit of 5
-        """
-        name = "get_current_orders_data"
-        description = "List active orders (not completed, rejected, or cancelled). Supports pagination."
-
-        query = """
-        query GetCurrentOrders($limit: Int = 5, $offset: Int = 0) {
-        blood_bank_order_view(
-            where: {status: {_nin: ["CMP", "REJ", "CAL"]}},
-            limit: $limit,
-            offset: $offset
-        ) {
-            request_id
-            status
-            blood_group
-            hospital_name
-            order_line_items
-            creation_date_and_time
-            delivery_date_and_time
-        }
-        }
-        """
-        variables = {"limit": limit, "offset": offset}
-        result = graphql_client.run_query(query, variables)
-        return result
-
-    @tool
-    def get_monthly_billing(months: list[str]):
-        """
-        Get billing data for one or more months. Includes total cost, units used, and patient count.
-        """
-        name = "get_monthly_billing"
-        description = "Fetch total cost, blood units, and patient counts for specific months like ['04-2025']"
-
-        query = """
-        query BillingData($months: [String!]!) {
-        cost_and_billing_view(where: {month_year: {_in: $months}}) {
-            company_name
-            month_year
-            total_cost
-            overall_blood_unit
-            total_patient
-            blood_component
-        }
-        }
-        """
-        variables = {"months": months}
-        result = graphql_client.run_query(query, variables)
-        return result
-
     
 
     def get_possible_values():
@@ -204,7 +83,7 @@ def blood_build_graph(company_id,user_id):
         return result
     
 
-    tools_list = [safe_graphql_tool,get_order_details_by_ids,get_orders_by_statuses,get_current_orders_data,get_monthly_billing]
+    tools_list = [safe_graphql_tool]
 
     llm_bind_tool=llm.bind_tools(tools_list)
     
@@ -278,12 +157,10 @@ def blood_build_graph(company_id,user_id):
 
     def query_generate(state: AgentState):
         logger.info("query_generate is executing...")
-        # for i in state.items():
-        #     print(i[0],":",i[1])    
-        # return state    
+  
         last_message = state["messages"][-1]
         if last_message.content.strip().startswith("[GraphQL Error]"):
-            print("GraphQl Error: ",last_message.content)
+            # print("GraphQl Error: ",last_message.content)
             input_message = HumanMessage(
                 content=f"""
                 User question: {state['messages'][0].content}
@@ -348,12 +225,14 @@ def blood_build_graph(company_id,user_id):
 
             
             response = llm_bind_tool.invoke([blood_System_query_prompt_format, input_message])
+            
 
         # handle tool_call message if no content
         if not response.content and response.additional_kwargs.get("tool_calls"):
             tool_name = response.additional_kwargs["tool_calls"][0]["function"]["name"]
             response.content = f"Calling `{tool_name}` tool to process your request..."
             response.additional_kwargs["tag"] = "tool_call"
+            state["query_generate_response"]= response
 
         # print("Call_llm:", response.content)
         # update state
@@ -425,7 +304,7 @@ def blood_build_graph(company_id,user_id):
         "tool_call": "graphql_tool",
         "data": "data_analyser"
     })
-
+    # sample_builder.add_edge("query_generate", END)
     sample_builder.add_edge("graphql_tool", "query_generate")
     sample_builder.add_edge("data_analyser",END)
     sample_builder.add_edge("general_response",END)
@@ -435,6 +314,6 @@ def blood_build_graph(company_id,user_id):
 
     graph=sample_builder.compile() 
     
-    graph.get_graph(xray=True).draw_mermaid_png(output_file_path="graph.png")
+    graph.get_graph(xray=True).draw_mermaid_png(output_file_path="blood_graph.png")
     return graph
 

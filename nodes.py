@@ -28,8 +28,10 @@ class AgentState(TypedDict):
     tool_calls_history: Optional[List[Dict[str, any]]]
     query_generate_response: Optional[Dict[str, any]]
     history: List[Any]
+    history_context: Optional[str]
     nodes: List[str]
     time: List[str]
+    loop_count: Optional[int] = 0
     debug_info: Optional[Dict[str, Any]]
 
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0,api_key=OPENAI_API_KEY)
@@ -89,17 +91,18 @@ def general_response(state: AgentState):
 
 def should_continue(state: AgentState):
     last_message = state["messages"][-1]
-    if isinstance(last_message, AIMessage) and getattr(last_message, "tool_calls", None):
-        return "tool_call"
-    return "data"
+    from graphql import parse, GraphQLError
+    try:
+        parsed = parse(last_message.content)
+        return "query"
+    except GraphQLError as e:
+        logger.error(f"GraphQLError in query_generate: {e}")
+        "end"
 
 def data_analyser(state: AgentState):
     logger.info("data_analyser is executing..")
     try:
-        # response = llm.invoke([system_data_analysis_prompt_format]+[state["messages"][0],state["messages"][-1]])
-        # print(state["intent_planner_response"])
         rephrased_question = json.loads(state["intent_planner_response"][0]).get("rephrased_question","")
-        # print(rephrased_question)
         user_message= rephrased_question if rephrased_question else state["messages"][0]
         response = llm.invoke([system_data_analysis_prompt_format]+["User question : ",user_message,"Data : "+str(state["messages"][-1].content)+"Response: "])
 
@@ -107,7 +110,6 @@ def data_analyser(state: AgentState):
         logger.error(f"data_analyser error: {e}")
         response = llm.invoke([system_data_analysis_prompt_format]+state["messages"])
 
-    # print("data_analyser: ",response.content)
     state["nodes"].append("data_analyser")
     state["time"].append(store_datetime())
     return {"messages": state["messages"] + [AIMessage(content=response.content)],"nodes":state["nodes"],"time":state["time"]}

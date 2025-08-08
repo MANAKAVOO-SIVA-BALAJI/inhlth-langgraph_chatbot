@@ -1,7 +1,7 @@
 
 from typing import Any, Dict
 
-from langchain_core.messages import HumanMessage  # type: ignore
+from langchain_core.messages import HumanMessage , AIMessage  # type: ignore
 from langsmith.run_helpers import traceable  # type: ignore
 
 from config import HASURA_ADMIN_SECRET, HASURA_GRAPHQL_URL, HASURA_ROLE
@@ -64,23 +64,36 @@ def generate_chat_response(chat_request, config: Dict[str, Any], conversation_id
             logger.warning(f"[trace_id={conversation_id}] Empty message received from user_id={user_id}")
             return "Error processing the request. Please provide a valid input."
 
-        message = [HumanMessage(content=chat_request.message, additional_kwargs={"tag": "user_input"})]
-
         # fetch history
         try:
             history = hasura_memory.get_messages(config)
         except Exception as e:
             logger.error(f"[trace_id={conversation_id}] Failed to fetch message history for user_id={user_id}: {e}")
             history = []
-        
+        # print("history messages :", history)
+
         history_length = len(history) if history else 0
         logger.info(f" Retrieved history for user_id={user_id}, length={history_length}")
-
+        # return "test response"
         # invoke the graph
+        if history_length > 0:
+            history_context = "\n".join(
+                    f"I am asked {msg.content}" if isinstance(msg, HumanMessage)
+                    else f"then I got {msg.content}"
+                    for msg in history
+                )
+        else:
+            history_context = ""
+
+        message = [HumanMessage(content=chat_request.message, additional_kwargs={"tag": "user_input"})]
+        # print("history_context :", history_context)
+        history_context = history_context + "so consider this context. Now, I am asked "
+        
         try:
             output = graph.invoke({
                 "messages": message,
                 "history": history,
+                "history_context": history_context,
                 "nodes": ["input"],
                 "time": [store_datetime()],
             })

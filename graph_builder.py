@@ -24,7 +24,7 @@ from nodes import (
     llm,
     should_continue,
 )
-from prompt import system_intent_prompt, system_query_prompt_format , system_intent_prompt2
+from prompt import system_intent_prompt, system_query_prompt_format , system_intent_prompt2 ,System_query_validation_prompt
 from utils import store_datetime ,get_current_datetime
 
 logger = setup_logger()
@@ -40,6 +40,7 @@ class SafeGraphQLWrapper:
             return f"[GraphQL Error] {str(e)} When running this query: {query}. The query might be malformed or the field might not exist."
 
 def build_graph(company_id,user_id):
+    print("[BUILD_GRAPH] Called")
     graphql_client = HasuraMemory(
         hasura_url=HASURA_GRAPHQL_URL,
         hasura_secret=HASURA_ADMIN_SECRET,
@@ -54,174 +55,12 @@ def build_graph(company_id,user_id):
                 "X-Hasura-Company-Id": company_id,
                 "x-hasura-user-id": user_id
             }
+    
     safe_graphql_tool = Tool(
     name="GraphQLTool",
     func=SafeGraphQLWrapper(endpoint=HASURA_GRAPHQL_URL,headers=headers).run,
     description="Executes GraphQL queries to retrive data. Returns error messages if the query is invalid."
     )
-
-    @tool
-    def get_order_details_by_ids(order_ids: list[str]):
-        """
-        Given a list of order IDs like ['ORD-HGK90BK', 'ORD-GSHK90BK'], 
-        returns full order information including blood type, delivery time, and status.
-        Useful when user refers to multiple specific orders.
-
-        """
-        name = "get_order_details_by_ids"
-        description="Given a list of order IDs like ['ORD-HGK90BK', 'ORD-GSHK90BK'], returns full order information including blood type, delivery time, and status. Useful when user refers to multiple specific orders."
-
-        query = """
-        query GetOrdersByIds($order_ids: [String!]!) {
-        blood_order_view(where: {request_id: {_in: $order_ids}}) {
-            request_id
-            status
-            blood_group
-            creation_date_and_time
-            delivery_date_and_time
-            reason
-            patient_id
-            first_name
-            last_name
-            order_line_items
-            blood_bank_name
-        }
-        }
-        """
-        variables = {"order_ids": order_ids}
-        result = graphql_client.run_query(query, variables)
-        return result
-
-    #Query node tools
-    @tool
-    def get_orders_by_statuses(statuses: list[str], limit: int = 5, offset: int = 0):
-        """
-        Fetch orders filtered by their status codes.
-        Supports multiple statuses and pagination.
-        ["CMP", "PA", "CAL", "REJ", "CAN","AA","BBA","BA","BSP","BP"]
-        """
-        name = "get_orders_by_statuses"
-        description = "Fetch orders based on multiple status codes like CMP, PA, CAL, etc."
-
-        query = """
-        query GetOrdersByStatuses($statuses: [orderstatusenum!]!, $limit: Int = 5, $offset: Int = 0) {
-        blood_order_view(
-            where: {status: {_in: $statuses}},
-            limit: $limit,
-            offset: $offset
-        ) {
-            request_id
-            status
-            creation_date_and_time
-            first_name
-            last_name
-        }
-        }
-        """
-        variables = {"statuses": statuses, "limit": limit, "offset": offset}
-        result = graphql_client.run_query(query, variables)
-        return result
-
-    @tool
-    def get_current_orders_data(limit: int = 5, offset: int = 0):
-        """
-        Get current active orders (excluding completed, rejected, or cancelled).
-        Used for general list display or pagination.
-
-        """
-        name = "get_current_orders_data"
-        description = "List active orders (not completed, rejected, or cancelled). Supports pagination."
-
-        query = """
-        query GetCurrentOrders($limit: Int = 5, $offset: Int = 0) {
-        blood_order_view(
-            where: {status: {_nin: ["CMP", "REJ", "CAL"]}},
-            limit: $limit,
-            offset: $offset
-        ) {
-            request_id
-            status
-            blood_group
-            blood_bank_name
-            order_line_items
-            creation_date_and_time
-            delivery_date_and_time
-        }
-        }
-        """
-        variables = {"limit": limit, "offset": offset}
-        result = graphql_client.run_query(query, variables)
-        return result
-
-    @tool
-    def get_monthly_billing(months: list[str]):
-        """
-        Get billing data for one or more months. Includes total cost, units used, and patient count.
-        """
-        name = "get_monthly_billing"
-        description = "Fetch total cost, blood units, and patient counts for specific months like ['04-2025']"
-
-        query = """
-        query BillingData($months: [String!]!) {
-        cost_and_billing_view(where: {month_year: {_in: $months}}) {
-            company_name
-            month_year
-            total_cost
-            overall_blood_unit
-            total_patient
-            blood_component
-        }
-        }
-        """
-        variables = {"months": months}
-        result = graphql_client.run_query(query, variables)
-        return result
-
-    @tool
-    def get_patient_by_blood_groups(groups: list[str]):
-        """
-        Retrieve patient information for one or more blood groups.
-        Helps find all patients with specific blood types.
-        Search patients based on one or more blood groups like ['A+', 'B-'].
-        """
-        name = "get_patient_by_blood_groups"
-        description = "Search patients based on one or more blood groups like ['A+', 'B-']."
-
-        query = """
-        query GetPatientsByBloodGroup($groups: [String!]!) {
-        blood_order_view(where: {blood_group: {_in: $groups}}) {
-            first_name
-            last_name
-            blood_group
-            request_id
-            status
-        }
-        }
-        """
-        variables = {"groups": groups}
-        result = graphql_client.run_query(query, variables)
-        return result
-
-    @tool
-    def get_recent_order_ids(limit: int = 5):
-        """
-        Provide a list of recent order IDs. Useful when users input invalid IDs or ask for suggestions.
-        you can use this tool to get recent order IDs
-        """
-        name = "get_recent_order_ids"
-        description = "List the most recent order IDs. Used when users need to see available orders."
-
-        query = """
-        query GetRecentOrderIds($limit: Int = 5) {
-        blood_order_view(order_by: {creation_date_and_time: desc}, limit: $limit) {
-            request_id
-            creation_date_and_time
-        }
-        }
-        """
-        variables = {"limit": limit}
-        result = graphql_client.run_query(query, variables)
-        return result
 
     def get_possible_values():
         query=""" query GetFilterOptions {
@@ -243,38 +82,33 @@ def build_graph(company_id,user_id):
         # logger.info(f"get_possible_values: {result}")
         return result
     
-    tools = [get_order_details_by_ids,get_orders_by_statuses,get_current_orders_data,get_monthly_billing,get_patient_by_blood_groups,get_recent_order_ids]
-    from langgraph.prebuilt import ToolNode
-
-    tool_node = ToolNode(tools=tools)
-
-    tools_list = [safe_graphql_tool,get_order_details_by_ids,get_orders_by_statuses,get_current_orders_data,get_monthly_billing,get_patient_by_blood_groups,get_recent_order_ids]
-
+    tools_list = [safe_graphql_tool]
     llm_bind_tool=llm.bind_tools(tools_list)
 
     tool_map = {tool.name: tool for tool in tools_list}
-
     def intent_planner(state: AgentState):
         logger.info("intent_planner is executing..")
         new_nodes = state["nodes"] + ["intent_planner"]
         new_time = state["time"] + [store_datetime()]
 
         try:
-            # Fetch allowed values for schema-restricted fields
             possible_values = get_possible_values() or {}
             data = possible_values
 
-            # Extract and flatten the field values
             bank_names = [item["blood_bank_name"] for item in data.get("bank_names", [])]
             blood_groups = [item["blood_group"] for item in data.get("blood_groups", [])]
             reasons = [item["reason"] for item in data.get("reasons", [])]
             statuses = [item["status"] for item in data.get("statuses", [])]
 
-            # Build a formatted string to guide the LLM
             field_context = f"""
-            VALID FIELDS AND VALUES
+            FIELD VALUE VALIDATION RULES
+            You must strictly validate the following fields using the allowed values list.
+            If no exact or fuzzy match is found (case-insensitive, spelling corrections, or common synonyms), you must ask for clarification in ask_for
 
             You must validate these restricted fields using exact or normalized values.
+            If a user provides a value for any field that cannot be matched to the possible values (even after normalization), you must ask for clarification.
+            For example, if user says B+ but it's not in the allowed list, ask:
+            “I couldn’t find any data for ‘B+’. I have options like O+, AB+, or A-. Could you let me know which one fits best?”
 
             Valid values for field validation:
                 - `blood_bank_name` (accepted blood banks): {bank_names}
@@ -284,15 +118,17 @@ def build_graph(company_id,user_id):
                 - `order_line_items` (Blood Components):  
                   [Single Donor Platelet, Platelet Concentrate, Packed Red Cells, Whole Human Blood, Platelet Rich Plasma, Fresh Frozen Plasma, Cryo Precipitate] 
                 - current time for Time based fields: {get_current_datetime()}
-                        """.strip()
-
-            # Compose the final prompt input to LLM
+                       
+Clarify with a friendly, helpful message listing a few valid options. Do not assume or auto-correct silently.
+ """.strip()
+            
+            
             full_prompt = [
                 SystemMessage(content=system_intent_prompt + field_context + system_intent_prompt2),
-                *state["messages"]
+                state["history_context"] + " ".join(msg.content for msg in state["messages"])
             ]
+            # print("full_prompt :", full_prompt)
 
-            # Single-step LLM invocation (no tool call needed)
             response = llm.invoke(full_prompt)
 
             logger.info("intent_planner LLM response received.")
@@ -321,11 +157,58 @@ def build_graph(company_id,user_id):
                 "time": new_time
             }
 
+    def static_query_generate(fields_needed: list):
+            all_order_supported_fields = ["age", "blood_bank_name", "blood_group", "creation_date_and_time", "delivery_date_and_time",\
+                        "first_name", "last_name", "order_id", "patient_id", "reason", "status", "user_id", "order_line_items"]
+            
+            all_cost_supported_fields = ["company_name", "month_year", "blood_component", "total_patient","overall_blood_unit", "total_cost"]
+                
+            order_supported_fields =[]
+            cost_supported_fields =[]
+
+            for field in fields_needed:
+                if field in all_order_supported_fields:
+                    order_supported_fields.append(field)
+                elif field in all_cost_supported_fields:
+                    cost_supported_fields.append(field)
+
+            if not order_supported_fields and not cost_supported_fields:
+                order_supported_fields = ["request_id", "status", "blood_bank_name","creation_date_and_time", "order_line_items"]
+
+            cost_query_template=""
+            order_query_template=""
+
+            if order_supported_fields:
+                order_query_template = f"""
+                blood_order_view(
+                    order_by: {{ creation_date_and_time: desc }},
+                    limit: 100
+                ) {{
+                    {', '.join(order_supported_fields)}
+                }}
+            """
+            if cost_supported_fields:
+                cost_query_template = f"""
+                cost_and_billing_view(
+                    order_by: {{ month_year: desc }},
+                    limit: 100
+                ) {{
+                    {', '.join(cost_supported_fields)}
+                }}
+                
+                """
+            return f"""
+            query {{
+                {order_query_template}
+                {cost_query_template if cost_query_template else ""}
+            }}
+                
+            """
+
     def query_generate(state: AgentState):
         logger.info("query_generate is executing...")
-        # for i in state.items():
-        #     print(i[0],":",i[1])    
-        # return state    
+        from graphql import parse, GraphQLError
+   
         last_message = state["messages"][-1]
         if last_message.content.strip().startswith("[GraphQL Error]"):
             print("GraphQl Error: ",last_message.content)
@@ -336,24 +219,12 @@ def build_graph(company_id,user_id):
                 Please fix the query.
                 """
             )
-            response = llm_bind_tool.invoke([system_query_prompt_format] + [input_message]) 
+            response = llm.invoke([system_query_prompt_format] + [input_message]) 
         
-        elif isinstance(last_message,ToolMessage):
-            # print("query_generate: Tool response:", last_message.content)
-            input_message = HumanMessage(
-            content=f"Response from tool: {last_message.content}"
-            )
-            # print("input_message: ",input_message)
-
-            response = llm_bind_tool.invoke([system_query_prompt_format] + state["messages"] + [input_message]
-)
-            # response = llm_bind_tool.invoke([system_query_prompt_format] +["User question :"+ state["messages"] +"\n"+ last_message.content])
-            # print("state[messages]:", state["messages"])
         else:
             json_data = {}
             try:
                 content = state["intent_planner_response"][0].strip()
-                # print("query_generate: Intent planner output:", content)
                 try:
                     json_data = json.loads(content)
                 except json.JSONDecodeError:
@@ -369,9 +240,9 @@ def build_graph(company_id,user_id):
                             "fields_needed": ""
                         }
 
-                required_keys = ["rephrased_question", "chain_of_thought"]
+                required_keys = ["rephrased_question", "chain_of_thought","fields_needed"]
                 if not all(key in json_data for key in required_keys):
-                    logger.info(f"query_generate: Missing required {required_keys}keys in intent response.")
+                    logger.info(f"query_generate: Missing required {required_keys} keys in intent response.")
 
                     json_data.setdefault("rephrased_question", state["messages"][0].content)
                     json_data.setdefault("chain_of_thought", "")
@@ -384,31 +255,45 @@ def build_graph(company_id,user_id):
                         f"Suggested fields: {json_data['fields_needed']}"
                     )
                 )
-
+                suggested_fields = json_data['fields_needed']
+                # print("suggested_fields :", suggested_fields)
             except Exception as e:
                 logger.error(f"query_generate error: {e}")
-                # fallback: use original user message
                 input_message = state["messages"][0]
-                # input_message = [first_message.content if hasattr(first_message, "content") else str(first_message)]
+            system_message = SystemMessage(
+                content=system_query_prompt_format
+            )
+            # print("input_message :", input_message.content)
+            response = llm.invoke([system_message, input_message])
+            print("query_generated : ",response.content)
+            try:
+                parsed = parse(response.content)
+            except GraphQLError as e:
+                logger.error(f"GraphQLError in query_generate: {e}")
+                error_message =  f"[GraphQL Error] {str(e)} When running this query: {response.content}."
+                query_validation_input_message = HumanMessage(content=f"""
+                        User Request: {input_message}
+                        Error Message:
+                        {error_message}
+                        """)
+                try:
+                    response = llm.invoke([SystemMessage(content=System_query_validation_prompt), query_validation_input_message])
+                    parsed = parse(response.content)
+                except Exception as e:
+                    logger.error(f"Failed to parse GraphQL response: {e}")
+                    response.content=static_query_generate(suggested_fields)
+                    logger.error(f"Used static query generation due to validation failure")
+               
+            logger.info("Query_generated finished successfully.")
 
-            
-            response = llm_bind_tool.invoke([system_query_prompt_format, input_message])
-
-        # handle tool_call message if no content
-        if not response.content and response.additional_kwargs.get("tool_calls"):
-            tool_name = response.additional_kwargs["tool_calls"][0]["function"]["name"]
-            response.content = f"Calling `{tool_name}` tool to process your request..."
-            response.additional_kwargs["tag"] = "tool_call"
-
-        # print("Call_llm:", response.content)
-        # update state
         state["nodes"].append("query_generate")
         state["time"].append(store_datetime())
 
         return {
-            "messages": state["messages"] + [response],
+            "messages": state["messages"] + [AIMessage(content=response.content, additional_kwargs={"tag": "query_generate"})],
             "nodes": state["nodes"],
-            "time": state["time"]
+            "time": state["time"],
+            "loop_count": state.get("loop_count", 0) + 1
         }
 
     def call_tool(state: AgentState):
@@ -449,13 +334,27 @@ def build_graph(company_id,user_id):
             "messages": state["messages"] + tool_outputs,
             "tool_calls_history": (state.get("tool_calls_history", []) + [tool_outputs])
         }
-   
+    
+    def run_graphql_query(state: AgentState):
+        query = state["messages"][-1].content
+        logger.info(f"Running GraphQL query: {query}")
+        data=graphql_client.run_query(query)
+        state["nodes"].append("run_graphql_query")
+        state["time"].append(store_datetime())
+
+        return {
+            "messages": state["messages"] + [AIMessage(content=json.dumps(data), additional_kwargs={"tag": "run_graphql_query"})],
+            "nodes": state["nodes"],
+            "time": state["time"]
+        }
+
     sample_builder= StateGraph(AgentState)
     sample_builder.add_node("intent_planner", intent_planner)
     sample_builder.add_node("query_generate", query_generate)
     sample_builder.add_node("general_response", general_response)
+    sample_builder.add_node("run_graphql_query", run_graphql_query)
     sample_builder.add_node("data_analyser", data_analyser)
-    sample_builder.add_node("graphql_tool", call_tool)
+    # sample_builder.add_node("graphql_tool", call_tool)
     sample_builder.add_node("clarify", clarify)
 
     sample_builder.add_conditional_edges("intent_planner", intent_planner_decision,
@@ -467,20 +366,23 @@ def build_graph(company_id,user_id):
     )
    
     sample_builder.add_conditional_edges("query_generate", should_continue, {
-        "tool_call": "graphql_tool",
-        "data": "data_analyser"
+        "query": "run_graphql_query",
+        "end": "general_response" 
     })
-
-    sample_builder.add_edge("graphql_tool", "query_generate")
+    sample_builder.add_edge("run_graphql_query","data_analyser")
+    # sample_builder.add_edge("graphql_tool", END)
+    # sample_builder.add_edge("graphql_tool", "query_generate")
     sample_builder.add_edge("data_analyser",END)
     sample_builder.add_edge("general_response",END)
     sample_builder.add_edge("clarify",END)
 
     sample_builder.set_entry_point("intent_planner")
-
+    # sample_builder.add_edge("intent_planner", END)
     graph=sample_builder.compile() 
-    
-    graph.get_graph(xray=True).draw_mermaid_png(output_file_path="graph.png")
+    # graph_code = graph.get_graph(xray=True).draw_mermaid()
+    # print(graph_code)
+
+    # graph.get_graph(xray=True).draw_mermaid_png(output_file_path="graph.png")
     return graph
 
 # user_id = "USR-3K2HD8DHYH"

@@ -26,8 +26,8 @@ import json
 class AgentState(TypedDict):
     messages: Annotated[Union[AIMessage, HumanMessage, ToolMessage,SystemMessage],add_messages]
     intent_planner_response: Optional[list[Dict[str,any]]]
-    tool_calls_history: Optional[List[Dict[str, any]]]
     query_generate_response: Optional[Dict[str, any]]
+    tool_calls_history: Optional[List[Dict[str, any]]]
     history: List[Any]
     nodes: List[str]
     time: List[str]
