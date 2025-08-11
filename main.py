@@ -270,11 +270,11 @@ Ask me anything about blood orders or billing insights. For example:
 """
 ]
 
-@app.get("/ai_assistant/")
+@app.get("/")
 async def root():
     return {"message": "Chatbot API AI backend is live and operational!"}
 
-@app.get("/ai_assistant/health")
+@app.get("/health")
 async def health_check():
     """Health check endpoint"""
     return {
@@ -288,7 +288,7 @@ async def health_check():
         }
     }
 
-@app.post("/ai_assistant/feedback")
+@app.post("/feedback")
 async def feedback_endpoint(req: FeedbackRequest):
     """
     Feedback endpoint - returns complete response at once
@@ -304,7 +304,7 @@ async def feedback_endpoint(req: FeedbackRequest):
     result = hasura_obj.add_feedback(conversation_id=conversation_id,session_id=session_id,feedback=feedback)
     return {"response": "Feedback added successfully!"}
 
-@app.post("/ai_assistant/chat")
+@app.post("/chat")
 async def chat_endpoint(req: ChatRequest):
     """
     Normal chat endpoint - returns complete response at once
@@ -314,7 +314,7 @@ async def chat_endpoint(req: ChatRequest):
     result = await process_normal_message(req)
     return  result
 
-@app.post("/ai_assistant/get_session_messages")
+@app.post("/get_session_messages")
 async def get_session_messages(req: HistoryRequest): 
 
     print("get_session_messages request details: ", req.session_id)
@@ -330,7 +330,7 @@ async def get_session_messages(req: HistoryRequest):
     
     return HistoryResponse(messages=history)
 
-@app.post("/ai_assistant/get_session_list")
+@app.post("/get_session_list")
 async def get_session_list(req: UserInfo):
     print("get_session_list request details: ", req.user_id)
     hasura_obj = HasuraMemory(hasura_url=HASURA_GRAPHQL_URL, hasura_secret=HASURA_ADMIN_SECRET, hasura_role=HASURA_ROLE, user_id=req.user_id)
