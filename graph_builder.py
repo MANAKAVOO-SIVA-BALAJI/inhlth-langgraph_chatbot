@@ -211,7 +211,7 @@ Clarify with a friendly, helpful message listing a few valid options. Do not ass
    
         last_message = state["messages"][-1]
         if last_message.content.strip().startswith("[GraphQL Error]"):
-            print("GraphQl Error: ",last_message.content)
+            print("GraphQl Error query: ",last_message.content)
             input_message = HumanMessage(
                 content=f"""
                 User question: {state['messages'][0].content}

@@ -314,6 +314,6 @@ def blood_build_graph(company_id,user_id):
 
     graph=sample_builder.compile() 
     
-    graph.get_graph(xray=True).draw_mermaid_png(output_file_path="blood_graph.png")
+    # graph.get_graph(xray=True).draw_mermaid_png(output_file_path="blood_graph.png")
     return graph
 

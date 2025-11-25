@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from langsmith import utils
 from pydantic import BaseModel, Field, field_validator
+from langsmith import trace, Client
 
 from chat import generate_chat_response
 from config import (
@@ -27,16 +28,17 @@ from logging_config import setup_logger
 from utils import get_current_datetime, get_message_unique_id, get_session_id, store_datetime
 
 logger = setup_logger()
+client = Client()
 
 if APP_DEBUG:
     os.environ["LANGCHAIN_API_KEY"] = LANGCHAIN_API_KEY
     os.environ["LANGCHAIN_TRACING_V2"] = LANGCHAIN_TRACING_V2
     os.environ["LANGCHAIN_ENDPOINT"] = LANGCHAIN_ENDPOINT
 
-trace = False
+trace_enabled = False
 
 if utils.tracing_is_enabled():
-    trace = True
+    trace_enabled = True
     print("LangSmith tracing is enabled.")
 else:
     print("LangSmith tracing is not enabled.")
@@ -221,17 +223,22 @@ async def process_normal_message(req: ChatRequest):
     print("session_exists", session_exists)
     if not session_exists:
         session_response = await session_init(req.user_id, req.session_id)
-    
+        
+    inputs = {"message": req.message}
+
     conversation_id = get_message_unique_id()
     
     try:
-        response = generate_chat_response(chat_request = req,config = config,conversation_id=conversation_id)
-        return ChatResponse(
-            session_id=req.session_id,
-            response=response,
-            created_at=get_current_datetime(),
-            conversation_id=conversation_id
-        )
+        with trace(name="chat_session", inputs=inputs) as root_run:
+            trace_id = str(root_run.id)
+            response = generate_chat_response(chat_request = req, config=config,conversation_id=trace_id)
+            # response = generate_chat_response(chat_request = req,config = config,conversation_id=conversation_id)
+            return ChatResponse(
+                session_id=req.session_id,
+                response=response,
+                created_at=get_current_datetime(),
+                conversation_id=trace_id #conversation_id
+            )
     except Exception as e:
         print("Main Error:", str(e))
         return ChatResponse(
@@ -302,6 +309,17 @@ async def feedback_endpoint(req: FeedbackRequest):
     feedback = req.feedback
 
     result = hasura_obj.add_feedback(conversation_id=conversation_id,session_id=session_id,feedback=feedback)
+    try:
+        client.create_feedback(
+        key="user_feedback",
+        score=feedback ,#if req.feedback == "positive" else 0,
+        trace_id=req.conversation_id,
+        comment=req.feedback
+        )
+    except Exception as e:
+        print(f"Error creating feedback: {e}")
+        return {"response": "Failed to add feedback."}
+
     return {"response": "Feedback added successfully!"}
 
 @app.post("/chat")
@@ -309,7 +327,7 @@ async def chat_endpoint(req: ChatRequest):
     """
     Normal chat endpoint - returns complete response at once
     """
-    logger.info(f"Chat Request: {req}")
+    logger.info(f"Chat Request: {req}")     
     
     result = await process_normal_message(req)
     return  result

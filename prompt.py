@@ -43,6 +43,8 @@ Your job is to convert user questions into **valid GraphQL queries** using only 
    `query { TABLE_NAME(arguments) { fields } }`
 3. Closing `)` **must come before** field selection `{ }`
 4. All brackets must be properly nested and balanced.
+5. When generating a Hasura GraphQL `where` condition with multiple comparisons on the same column, combine all operators (`_eq`, `_gte`, `_lte`, `_lt`, `_gt`, `_neq`) into a single object for that column
+
 
 ---
 
@@ -78,7 +80,7 @@ query {
 - blood_bank_name (String)
 
 **cost_and_billing_view**
-- month_year (String): "June-2025"
+- month_year (String): "Month-Year" eg: "June-2025"
 - blood_component (String)
 - total_patient (Integer)
 - overall_blood_unit (String)
@@ -135,7 +137,7 @@ Only use the following values for filters, after **auto-normalizing user input**
 Normalization Rules:
 - Match field values **case-insensitively**
 - Allow simple text variants (e.g., "whole human blood" → "Whole Human Blood")
-- Ignore any value that does **not match** the accepted list after normalization
+- If no match, omit the filter entirely instead of inventing one after normalization
 
 Use the value **only if the normalized user input matches exactly** with one of the entries below:
 
@@ -157,15 +159,17 @@ Use the value **only if the normalized user input matches exactly** with one of 
 
 ## RULES TO FOLLOW
 
+- These rules apply to all Hasura GraphQL query generation.
 - Always include: `order_by: { creation_date_and_time: desc }`
 - Use `_aggregate` for `sum`, `count`, `avg` only on numeric fields
 - Use JSONB `_cast` rules for `order_line_items`
-- Return only requested or relevant fields — never include all
-- Do not fabricate or assume data
-- Use only fields defined in schema
-- Never include identity filters like `patient_id`, `company_id`, or `user_id` unless the value is explicitly provided or clearly implied by the user.
-- Do not use placeholder values like `"user_patient_id"` — omit the filter instead.
-
+- Always include at least status, creation_date_and_time, and fields directly relevant to the filter or user request.
+- Do not fabricate, assume, or infer data not present in the schema
+- Reject any field not defined in the schema
+- Never include identity filters like `patient_id`, `company_id`, or `user_id` unless explicitly provided or clearly implied by the user
+- Do not use placeholder values like `"user_patient_id"` — omit the filter instead
+- Do not include filters with `null` values unless explicitly requested
+- For any timestamp filtering, always format the value exactly as `"YYYY-MM-DDTHH:MM:SS"` (example: `"2025-08-11T14:24:39"`). Do not include timezone information or `Z`.
 
 ---
 
@@ -173,23 +177,36 @@ Use the value **only if the normalized user input matches exactly** with one of 
 
 ### Example 1:
 User:
-Show me all pending orders that include "Whole Human Blood".
+Show me blood pending and agent assigned orders from September 1, 2025.
 
 → Chain of Thought:
-Filter by `status = PA` and product_name containing "Whole Human Blood"
+The user is asking for blood orders from a specific date, September 1, 2025. This maps to the blood_order_view table. I will filter the orders by the creation date of September 1, 2025, to retrieve any relevant orders.
 
 → Output:
 query {
   blood_order_view(
     where: {
-      status: { _eq: "PA" },
-      order_line_items: {
-        _cast: {
-          String: {
-            _ilike: "%Whole Human Blood%"
+      _and: [
+        {
+          _or: [
+            { status: { _eq: "PA" } },
+            { status: { _eq: "AA" } }
+          ]
+        },
+        {
+          order_line_items: {
+            _cast: {
+              String: { _ilike: "%Whole Human Blood%" }
+            }
+          }
+        },
+        {
+          creation_date_and_time: {
+            _gte: "2025-09-01T00:00:00",
+            _lt: "2025-09-02T00:00:00"
           }
         }
-      }
+      ]
     },
     order_by: { creation_date_and_time: desc },
     limit: 100
@@ -493,6 +510,7 @@ You will receive:
 - The raw data response that is already filtered and directly relevant to the user's question
 
 Important: The data is guaranteed to be relevant. Assume the data is valid unless it is explicitly an empty list ([]). Do not infer or fabricate missing details.. Partial fields (e.g., missing `blood_bank_name` or `delivery_date_and_time`) are expected in pending or unapproved orders and still count as valid.
+Never exclude or ignore order data when forming your response. Every record must either appear individually (if requested) or be included in grouped totals. Summaries must be mathematically consistent with the data.
 
 Your job is to:
 - Interpret the human's intent (direct, comparative, trend-based, or statistical)
@@ -538,7 +556,7 @@ Note:
 
 Decision Checklist (Before Responding):
 - Check if the provided data is an empty list (`[]`). If it’s not empty, proceed to generate a response.
-- If multiple records exist and the user did not explicitly ask for details of each order, summarize them in an aggregated, narrative format. Do not list each order individually unless explicitly requested.
+- If multiple records exist, you must always account for every record. Summarize them in an aggregated narrative format, but ensure all records are included in the total counts. Never omit or ignore any order. Only list each order individually if the user explicitly requests detailed tracking.
 - If exactly one record exists, format it using the single-order response style.
 - If the data contains partial fields (e.g., no blood bank or delivery date), treat it as valid and use available fields.
 - Do not return “No matching records were found” unless the data is truly empty.
@@ -550,7 +568,7 @@ Response Format Instructions:
 - Ensure responses are mobile-friendly and readable
 - If multiple relevant orders are found and the user didn’t ask for detailed order-by-order tracking, provide an overview using aggregated statistics, trends, or grouped counts. Only list each order separately if the user’s question clearly asks for it.
 - use ₹ for currency
-- for multiple records, summarise the data by including the most important fields like status, blood_group, and blood_bank_name.
+- For multiple records, summarize the data by grouping into counts (status, blood_group, blood_bank_name). Always ensure the counts add up exactly to the total number of records provided. Never drop or skip any order — all orders must be reflected in either totals or group counts.
 - For detailed information, you can insist the user to use the website 
 
 ---
@@ -562,7 +580,7 @@ Your order ORD-123 for B+ blood, placed on July 2nd, is still waiting to be pick
 ---
 
 For Summary of Multiple Records:
-Out of 42 orders placed, 36 were completed, 4 are still pending, and 2 were rejected.
+Out of 73 orders placed, 51 were assigned to a blood bank, 11 were approved, 7 are in blood sample pickup, and 4 were cancelled.
 The most requested blood group was O+, and AIIMS, Delhi was the most active hospital during this period.
 
 ---
@@ -815,7 +833,9 @@ This month, you placed 6 blood orders — 3 were completed, 2 are still pending,
 
 """
 
-system_data_analysis_prompt_format = system_data_analysis_prompt_template+f"{system_data_analysis_prompt_template_few_shot}"+ f"\nCurrent date and time (Use this for time references): {get_current_datetime()}." 
+system_current_time_prompt =f"\nCurrent date and time (Use this for time references): {get_current_datetime()}.\n When mentioning dates or times, always rephrase them in natural, human-friendly terms (e.g., ‘yesterday’, ‘earlier this month’, ‘on Aug 7, 2025’). Use the provided current date as a reference point for relative terms like last week, last month, etc"  
+
+system_data_analysis_prompt_format = system_data_analysis_prompt_template+f"{system_data_analysis_prompt_template_few_shot}" + system_current_time_prompt
 
 system_intent_prompt = """ 
 SYSTEM INSTRUCTION  
@@ -1315,6 +1335,7 @@ Response Rules:
 - Always extract only the records relevant to the question before forming a response.
 - if no data is found, return a polite, intent-specific empty response.
 - if multiple records are found, summarize or list them clearly.
+- mandatoryly mention the time line in the response via natural language.
 
 ---
 

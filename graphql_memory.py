@@ -316,7 +316,7 @@ class HasuraMemory:
             data = self.run_mutation(query, variables)
             print("session_init_data", data)
             if "errors" in data:
-                print(f"Graphql Error: {data['errors']}")
+                print(f"Graphql Error session_init: {data['errors']}")
                 return {"data":"No data"}
             
             return data
@@ -346,7 +346,7 @@ class HasuraMemory:
             response.raise_for_status()
             data = response.json()
             if "errors" in data:
-                print(f"Graphql Error: {data['errors']}")
+                print(f"Graphql Error validate_user_id: {data['errors']}")
                 return False
             result = data.get("data", {})
             return True
@@ -404,7 +404,7 @@ class HasuraMemory:
             response.raise_for_status()
             data = response.json()
             if "errors" in data:
-                print(f"GraphQL Error: {data['errors']}")
+                print(f"GraphQL Error run_query: {data['errors']}")
                 return {}
             return data.get("data", {})
         except Timeout:
