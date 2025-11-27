@@ -1,0 +1,592 @@
+messages:
+  - role: system
+    content: >-
+      Role: You are a helpful and friendly assistant named Inhlth, designed to
+      analyze blood supply and cost data and answer user questions accurately
+      based on the provided data.
+
+
+      Inner role (Do not mention this role in the response): You are an expert
+      in analyzing data.
+
+      Your task is to examine the provided data response and answer the user's
+      question using ONLY the provided data, precisely and concisely, following
+      the Response Rules below.
+
+
+      ==================== STRICT STRUCTURED DATA REASONING (APPLIES TO ANY SIZE
+      DATA) ====================
+
+
+      A. Deterministic Processing (MANDATORY)
+
+
+      Always parse the input as raw structured data (JSON or native object). Do
+      NOT rely on visual pattern recognition or prose summaries.
+
+
+      Locate the primary records array:
+
+
+      Prefer array at top-level.
+
+
+      If top-level is an object, prefer fields named: blood_order_view, orders,
+      data, results.
+
+
+      If multiple arrays exist, select the array whose items contain order-like
+      keys (request_id, order_id, creation_date_and_time, order_line_items).
+
+
+      Treat the selected array as the authoritative set of records. Do NOT
+      deduplicate unless the user explicitly asks.
+
+
+      NEVER estimate. Always compute counts by taking the exact array length
+      (number of items). When filtering, compute counts by the length of the
+      filtered result.
+
+
+      B. Large-data behavior
+
+
+      The template must work with any dataset size. If the dataset is large and
+      the user did not request individual order-by-order listing, present
+      aggregated/grouped results only.
+
+
+      For large datasets (heuristic): if the input contains more than 200 items
+      or shows truncation markers (e.g., "...", "[truncated]", "truncated",
+      "…"), do NOT attempt to list every record. Instead:
+
+
+      Provide grouped counts (status, product_name, blood_group,
+      blood_bank_name) that sum exactly to total records.
+
+
+      If the user explicitly asks for a full itemized list and the dataset
+      appears truncated or too large, reply: "Data too large or truncated for
+      full itemized listing. Please filter by date/status or use the website for
+      a downloadable export."
+
+
+      Always ensure grouped counts add up exactly to the total number of records
+      included in the authoritative array.
+
+
+      C. Filtering & Matching (EXACT rules)
+
+
+      Filtering must use exact-match semantics (case-insensitive) for string
+      comparisons unless the user requests fuzzy matches.
+
+
+      Include an item only if its field literally matches the filter requested
+      (after normalizing case). Do NOT infer or approximate.
+
+
+      If the user requests "Platelet Concentrate", match product_name ==
+      "Platelet Concentrate" (case-insensitive). Count an order once if any of
+      its order_line_items match, but when reporting units or costs, sum only
+      the matching line items.
+
+
+      D. Numeric Summation / Missing Values
+
+
+      When summing units, convert unit fields to numeric values. If unit is
+      missing or non-numeric, treat that item as "unit unknown".
+
+
+      When summing costs, use the explicit numeric price or total_cost field
+      values ONLY. Do NOT invent values.
+
+
+      If any line item involved in a requested sum has price or total_cost ==
+      null or missing, DO NOT produce a single precise total. Instead:
+
+
+      Compute the exact sum for items with numeric prices.
+
+
+      Report: "Exact total cannot be determined because price is missing for X
+      item(s)." and show the partial sum (₹).
+
+
+      Always use the currency symbol ₹ for totals.
+
+
+      E. Truncation & Incomplete Data (FAIL SAFE)
+
+
+      If the input literally includes truncation indicators or if essential
+      fields required to answer the exact query are missing in any record (e.g.,
+      missing product_name when filtering by product), reply exactly:
+
+      "Data insufficient to determine exact [value requested] due to incomplete
+      or truncated input."
+
+
+      If the dataset is complete but contains nulls in numeric fields, follow
+      rule D.3.
+
+
+      F. Required Step-By-Step Output Procedure (MUST be followed)
+
+
+      Parse JSON exactly as provided.
+
+
+      Identify authoritative records array.
+
+
+      If the user requested a filter, filter records EXACTLY (case-insensitive
+      compare).
+
+
+      Count results using array length.
+
+
+      If units/costs requested, sum numeric fields per rule D.
+
+
+      Construct final answer only from these computed values—no inference, no
+      approximation.
+
+
+      G. Output Tone & Format Constraints
+
+
+      Keep responses concise: 2–4 lines (but not more than 6 lines) unless user
+      explicitly asks for more detail.
+
+
+      No HTML, no Markdown, no emojis.
+
+
+      Use plain readable sentences. Use natural date phrases relative to current
+      system time (e.g., "yesterday", "earlier this month", "on Nov 26, 2025").
+
+
+      For aggregated responses, include only grouped counts and totals requested
+      and ensure all counts sum to the total number of records processed.
+
+
+      If user asks for single-order tracking, include: status, request_id (or
+      order_id), blood_group, and creation_date_and_time.
+
+
+      H. Error messages and user guidance (short & actionable)
+
+
+      If dataset is truncated or incomplete: "Data insufficient to determine
+      exact [value]. Provide full JSON or filter the request
+      (date/status/product)."
+
+
+      If user asks for itemized listing for a very large dataset: "Dataset is
+      large; please filter by date/status/product or view the detailed report on
+      the website."
+
+
+      I. Prohibited behaviors
+
+
+      No guessing of numeric values or counts.
+
+
+      No grouping unless explicitly requested or when summarizing large datasets
+      per rule B.
+
+
+      No omission of records from totals.
+
+
+      No internal chain-of-thought content leaked in outputs.
+
+
+      ==================== STANDARD RESPONSE RULES (KEEP) ====================
+
+
+      The data is guaranteed to be relevant. Assume valid unless it's an empty
+      list ([]).
+
+
+      Never exclude or ignore order data when forming your response. Every
+      record must either appear individually (if requested) or be included in
+      grouped totals. Summaries must be mathematically consistent with the data.
+
+
+      When the user didn’t ask for detailed tracking, return aggregated
+      statistics grouped by relevant fields (status, product_name, blood_group,
+      blood_bank_name) ensuring counts add up to the dataset size.
+
+
+      If exactly one record exists, format as a single-order response including
+      required fields.
+
+
+      If the data is truly empty ([]), provide a friendly, question-specific
+      message that the data is not available.
+
+
+      Decision Checklist (Before Responding):
+
+
+      Check whether data is empty. If not empty, proceed.
+
+
+      Identify authoritative records array and count its length.
+
+
+      Always include all records in totals or grouped counts.
+
+
+      If any numeric field required for an exact answer is null/missing, follow
+      rule D.3 and report inability to compute exact totals while giving partial
+      sums.
+
+
+      Response Format Instructions:
+
+
+      No HTML or Markdown.
+
+
+      No emojis.
+
+
+      Concise: 2–4 lines (max 6).
+
+
+      Mobile-friendly plain text.
+
+
+      Use ₹ for currency.
+
+
+      Example short outputs:
+
+
+      Aggregation: "Out of 69 orders, 52 are assigned to a blood bank, 8 are
+      agent-assigned, 6 are pending, and 3 are completed."
+
+
+      Single order: "Your order ORD-123 for B+ (placed on Jul 2, 2025) is
+      waiting for pickup from Apollo, Hyderabad."
+
+
+      ================================================================================
+  - role: user
+    content: >-
+      user question: Are there any blood orders for Platelet Concentrate?
+
+
+      Data: 
+
+
+      Data : {"blood_order_view": [{"request_id": "ORD-IBENMRZJ6U", "status":
+      "BBA", "creation_date_and_time": "2025-11-26T17:52:31",
+      "order_line_items": [{"unit": 1, "price": 0, "product_name": "Platelet
+      Concentrate"}]}, {"request_id": "ORD-F4OATR5XIU", "status": "BBA",
+      "creation_date_and_time": "2025-11-26T17:46:16", "order_line_items":
+      [{"unit": 1, "price": 0, "product_name": "Platelet Concentrate"}]},
+      {"request_id": "ORD-VP1Z4D04AU", "status": "BBA",
+      "creation_date_and_time": "2025-11-26T17:37:07", "order_line_items":
+      [{"unit": 1, "price": 0, "product_name": "Platelet Concentrate"}]},
+      {"request_id": "ORD-DGJZF5JOZG", "status": "BBA",
+      "creation_date_and_time": "2025-11-26T17:34:45", "order_line_items":
+      [{"unit": 1, "price": 0, "product_name": "Platelet Concentrate"}]},
+      {"request_id": "ORD-HDKIRR0DKA", "status": "BBA",
+      "creation_date_and_time": "2025-11-26T17:27:57", "order_line_items":
+      [{"unit": 1, "price": 0, "product_name": "Platelet Concentrate"}]},
+      {"request_id": "ORD-23TUBUA4L0", "status": "BBA",
+      "creation_date_and_time": "2025-11-25T11:26:39", "order_line_items":
+      [{"unit": 1, "price": 0, "product_name": "Platelet Concentrate"}]},
+      {"request_id": "ORD-U9JSEKFUHM", "status": "BBA",
+      "creation_date_and_time": "2025-11-25T11:25:13", "order_line_items":
+      [{"unit": 1, "price": 0, "product_name": "Platelet Concentrate"}]},
+      {"request_id": "ORD-QPW2SV1YGS", "status": "BBA",
+      "creation_date_and_time": "2025-11-25T11:22:51", "order_line_items":
+      [{"unit": 1, "price": 0, "product_name": "Platelet Concentrate"}]},
+      {"request_id": "ORD-1S4BUSIBET", "status": "BBA",
+      "creation_date_and_time": "2025-11-20T18:54:43", "order_line_items":
+      [{"unit": 1, "price": 0, "product_name": "Platelet Concentrate"}]},
+      {"request_id": "ORD-WZU0RO6RHM", "status": "BBA",
+      "creation_date_and_time": "2025-11-20T18:53:05", "order_line_items":
+      [{"unit": 1, "price": 0, "product_name": "Platelet Concentrate"}]},
+      {"request_id": "ORD-WGP72SES1M", "status": "BBA",
+      "creation_date_and_time": "2025-11-20T18:51:25", "order_line_items":
+      [{"unit": 1, "price": 0, "product_name": "Platelet Concentrate"}]},
+      {"request_id": "ORD-SG0DC5BWD2", "status": "BBA",
+      "creation_date_and_time": "2025-11-20T18:37:44", "order_line_items":
+      [{"unit": 1, "price": 0, "product_name": "Platelet Concentrate"}]},
+      {"request_id": "ORD-G4N3MKB2BI", "status": "BBA",
+      "creation_date_and_time": "2025-11-20T17:44:48", "order_line_items":
+      [{"unit": 1, "price": 0, "product_name": "Platelet Concentrate"}]},
+      {"request_id": "ORD-U7ZRYUICLE", "status": "BBA",
+      "creation_date_and_time": "2025-11-20T17:38:04", "order_line_items":
+      [{"unit": 1, "price": 0, "product_name": "Platelet Concentrate"}]},
+      {"request_id": "ORD-5B1TCPH908", "status": "BBA",
+      "creation_date_and_time": "2025-11-18T10:49:04", "order_line_items":
+      [{"unit": 1, "price": 0, "product_name": "Platelet Concentrate"}]},
+      {"request_id": "ORD-OB90O39OKG", "status": "BBA",
+      "creation_date_and_time": "2025-11-17T19:42:11", "order_line_items":
+      [{"unit": 1, "price": 0, "product_name": "Platelet Concentrate"}]},
+      {"request_id": "ORD-QJFTSV3LTY", "status": "AA", "creation_date_and_time":
+      "2025-11-15T19:45:17", "order_line_items": [{"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}, {"unit": 1, "price": 11000,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 130,
+      "product_name": "Packed Red Cells"}, {"unit": 1, "price": 1500,
+      "product_name": "Whole Human Blood"}, {"unit": 1, "price": 2000,
+      "product_name": "Platelet Rich Plasma"}, {"unit": 1, "price": 1500,
+      "product_name": "Fresh Frozen Plasma"}, {"unit": 1, "price": 2500,
+      "product_name": "Cryo Precipitate"}]}, {"request_id": "ORD-SAWGVQIZQ7",
+      "status": "BBA", "creation_date_and_time": "2025-11-15T18:53:49",
+      "order_line_items": [{"unit": 1, "price": 0, "product_name": "Platelet
+      Concentrate"}]}, {"request_id": "ORD-PV9GE0RU5V", "status": "BBA",
+      "creation_date_and_time": "2025-11-14T15:32:37", "order_line_items":
+      [{"unit": 1, "price": 0, "product_name": "Platelet Concentrate"}]},
+      {"request_id": "ORD-ZE82QCU0S9", "status": "BBA",
+      "creation_date_and_time": "2025-11-14T15:32:09", "order_line_items":
+      [{"unit": 1, "price": 0, "product_name": "Platelet Concentrate"}]},
+      {"request_id": "ORD-G5DXLWJKHC", "status": "PA", "creation_date_and_time":
+      "2025-11-14T15:31:36", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-V7UAISMPHV", "status": "AA", "creation_date_and_time":
+      "2025-11-14T15:21:21", "order_line_items": [{"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-BDYS1LWIEZ", "status": "BBA", "creation_date_and_time":
+      "2025-11-14T15:20:30", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-NVPU9YP0RC", "status": "BBA", "creation_date_and_time":
+      "2025-11-14T15:04:49", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-JDFHOFM1WO", "status": "PA", "creation_date_and_time":
+      "2025-11-14T15:04:07", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-M0X4RN666R", "status": "BBA", "creation_date_and_time":
+      "2025-11-14T13:27:08", "order_line_items": [{"unit": 1, "price": null,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-I6FH49Z5TY", "status": "BBA", "creation_date_and_time":
+      "2025-11-14T13:13:50", "order_line_items": [{"unit": 1, "price": null,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-LEBNF8BCRV", "status": "BSP", "creation_date_and_time":
+      "2025-11-14T13:05:15", "order_line_items": [{"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-RCFBLKVAPT", "status": "AA", "creation_date_and_time":
+      "2025-11-14T12:50:04", "order_line_items": [{"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-69ST79HBZK", "status": "BBA", "creation_date_and_time":
+      "2025-11-14T12:28:40", "order_line_items": [{"unit": 1, "price": null,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-F8EI6HCKLK", "status": "BBA", "creation_date_and_time":
+      "2025-11-14T12:25:08", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-9QL3PKT8M6", "status": "BBA", "creation_date_and_time":
+      "2025-11-14T12:24:40", "order_line_items": [{"unit": 2, "price": null,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-82SQQICM98", "status": "BBA", "creation_date_and_time":
+      "2025-11-14T12:16:57", "order_line_items": [{"unit": 1, "price": null,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-LUOJSIS9W0", "status": "BBA", "creation_date_and_time":
+      "2025-11-13T18:53:07", "order_line_items": [{"unit": 1, "price": null,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-5E9VWC4BQT", "status": "BBA", "creation_date_and_time":
+      "2025-11-13T17:24:18", "order_line_items": [{"unit": 1, "price": null,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-AT7G24A23G", "status": "BBA", "creation_date_and_time":
+      "2025-11-06T22:38:37", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-JV27UA22Q3", "status": "BBA", "creation_date_and_time":
+      "2025-10-30T16:51:50", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-OYK46NDTB2", "status": "AA", "creation_date_and_time":
+      "2025-10-30T15:39:19", "order_line_items": [{"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-KZ9RGN6CL4", "status": "AA", "creation_date_and_time":
+      "2025-10-30T14:57:58", "order_line_items": [{"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-VOSGUL0DDG", "status": "AA", "creation_date_and_time":
+      "2025-10-30T12:59:33", "order_line_items": [{"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-8A7X4FPKCT", "status": "AA", "creation_date_and_time":
+      "2025-10-30T12:56:41", "order_line_items": [{"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-4YHU3A92HI", "status": "AA", "creation_date_and_time":
+      "2025-10-30T12:52:03", "order_line_items": [{"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-S6L0CM6SGT", "status": "AA", "creation_date_and_time":
+      "2025-10-30T12:02:11", "order_line_items": [{"unit": 2, "price": 2000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-UFS2A4UDMC", "status": "BBA", "creation_date_and_time":
+      "2025-10-30T10:50:21", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-FQCPWFA3LG", "status": "CMP", "creation_date_and_time":
+      "2025-10-30T10:24:13", "order_line_items": [{"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}, {"unit": 1, "price": 11000,
+      "product_name": "Single Donor Platelet"}]}, {"request_id":
+      "ORD-AZI7RDLR94", "status": "BBA", "creation_date_and_time":
+      "2025-10-29T23:18:42", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-CN9JXVEMBD", "status": "AA", "creation_date_and_time":
+      "2025-10-28T11:35:20", "order_line_items": [{"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}, {"unit": 1, "price": 1500,
+      "product_name": "Fresh Frozen Plasma"}]}, {"request_id": "ORD-2M1PCG20KX",
+      "status": "BBA", "creation_date_and_time": "2025-09-23T15:04:15",
+      "order_line_items": [{"unit": 1, "price": 0, "product_name": "Single Donor
+      Platelet"}, {"unit": 1, "price": 0, "product_name": "Platelet
+      Concentrate"}]}, {"request_id": "ORD-6HQUIJ25L8", "status": "AA",
+      "creation_date_and_time": "2025-09-23T12:43:22", "order_line_items":
+      [{"unit": 1, "price": 11000, "product_name": "Single Donor Platelet"},
+      {"unit": 1, "price": 1000, "product_name": "Platelet Concentrate"}]},
+      {"request_id": "ORD-WSTAC2WHUQ", "status": "AA", "creation_date_and_time":
+      "2025-09-23T11:56:17", "order_line_items": [{"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-A72W5SYS16", "status": "AA", "creation_date_and_time":
+      "2025-09-23T11:55:29", "order_line_items": [{"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-MC2SQJEZZ0", "status": "AA", "creation_date_and_time":
+      "2025-09-22T18:27:30", "order_line_items": [{"unit": 1, "price": 11000,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-BBIIQSOWAB", "status": "AA", "creation_date_and_time":
+      "2025-09-22T18:14:50", "order_line_items": [{"unit": 1, "price": 11000,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-9GQ2ZDD5FO", "status": "AA", "creation_date_and_time":
+      "2025-09-22T16:24:15", "order_line_items": [{"unit": 1, "price": 11000,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-WLB92VYHE9", "status": "BBA", "creation_date_and_time":
+      "2025-09-19T18:13:35", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-MX6AN8F4HC", "status": "BBA", "creation_date_and_time":
+      "2025-09-19T15:40:32", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-DS7LC3T72E", "status": "BBA", "creation_date_and_time":
+      "2025-09-19T15:31:36", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-NEOFKLH0T3", "status": "BBA", "creation_date_and_time":
+      "2025-09-19T15:11:28", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-Z6ZXZEY7TR", "status": "BBA", "creation_date_and_time":
+      "2025-09-19T14:28:12", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-V8GXPV4QSM", "status": "AA", "creation_date_and_time":
+      "2025-09-18T18:55:49", "order_line_items": [{"unit": 1, "price": 11000,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-3GCBJZNNJL", "status": "BBA", "creation_date_and_time":
+      "2025-09-18T18:49:06", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-9JWERAQYYQ", "status": "AA", "creation_date_and_time":
+      "2025-09-18T17:25:26", "order_line_items": [{"unit": 1, "price": 11000,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-WD8YSPOB37", "status": "AA", "creation_date_and_time":
+      "2025-09-18T16:52:35", "order_line_items": [{"unit": 1, "price": 11000,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-LU7PTKQI8S", "status": "AA", "creation_date_and_time":
+      "2025-09-18T15:28:59", "order_line_items": [{"unit": 1, "price": 11000,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-9JC17VLC5D", "status": "AA", "creation_date_and_time":
+      "2025-09-18T15:12:22", "order_line_items": [{"unit": 1, "price": 11000,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-2JX7DT3V6Z", "status": "BBA", "creation_date_and_time":
+      "2025-09-18T14:58:42", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-C50LN45QLM", "status": "BBA", "creation_date_and_time":
+      "2025-09-18T14:32:35", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-VEB75551XC", "status": "BBA", "creation_date_and_time":
+      "2025-09-18T14:06:55", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-F5EFJ4QT7O", "status": "BBA", "creation_date_and_time":
+      "2025-09-17T17:55:20", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-YD3VO3VZE3", "status": "BBA", "creation_date_and_time":
+      "2025-09-17T17:45:28", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-XILME6YZKD", "status": "AA", "creation_date_and_time":
+      "2025-09-17T16:29:42", "order_line_items": [{"unit": 1, "price": 11000,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-4TBS0RJ5E6", "status": "AA", "creation_date_and_time":
+      "2025-09-17T16:03:53", "order_line_items": [{"unit": 1, "price": 11000,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-7584F1QIAL", "status": "BBA", "creation_date_and_time":
+      "2025-09-16T19:09:36", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-RCD2PCCUW9", "status": "BBA", "creation_date_and_time":
+      "2025-09-16T19:04:35", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-6DSO8LACC8", "status": "BBA", "creation_date_and_time":
+      "2025-09-16T18:52:03", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-ETK73CZ6C4", "status": "BBA", "creation_date_and_time":
+      "2025-09-16T18:40:27", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-027LTKHBRO", "status": "AA", "creation_date_and_time":
+      "2025-09-16T14:43:56", "order_line_items": [{"unit": 1, "price": 11000,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-LHYVA1NMG6", "status": "BBA", "creation_date_and_time":
+      "2025-09-16T14:37:36", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-88U6V1IMO5", "status": "BBA", "creation_date_and_time":
+      "2025-09-16T14:22:10", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-KBJ4RYRUCW", "status": "BBA", "creation_date_and_time":
+      "2025-09-16T14:11:10", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-11PMGVCQOT", "status": "BBA", "creation_date_and_time":
+      "2025-09-16T14:02:58", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-CGILUBZ0A7", "status": "BBA", "creation_date_and_time":
+      "2025-09-16T12:57:14", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-0VQTI3T1J2", "status": "BBA", "creation_date_and_time":
+      "2025-09-16T12:47:39", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-PZPPYEIVAQ", "status": "BBA", "creation_date_and_time":
+      "2025-09-16T12:34:12", "order_line_items": [{"unit": 1, "price": 0,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 0,
+      "product_name": "Platelet Concentrate"}]}, {"request_id":
+      "ORD-QOVJEHTVTZ", "status": "AA", "creation_date_and_time":
+      "2025-09-16T12:19:27", "order_line_items": [{"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}, {"unit": 1, "price": 11000,
+      "product_name": "Single Donor Platelet"}]}, {"request_id":
+      "ORD-PVMPV084PI", "status": "AA", "creation_date_and_time":
+      "2025-09-15T19:04:07", "order_line_items": [{"unit": 1, "price": 11000,
+      "product_name": "Single Donor Platelet"}, {"unit": 1, "price": 1000,
+      "product_name": "Platelet Concentrate"}]}]}Response: 
+model: openai/gpt-4o-mini
