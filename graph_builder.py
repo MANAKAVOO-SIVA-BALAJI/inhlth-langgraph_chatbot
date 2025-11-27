@@ -26,6 +26,7 @@ from nodes import (
 )
 from prompt import system_intent_prompt, system_query_prompt_format , system_intent_prompt2 ,System_query_validation_prompt
 from utils import store_datetime ,get_current_datetime
+from toon_formatter import format_toon  ,summary_toon
 
 logger = setup_logger()
 
@@ -119,8 +120,8 @@ def build_graph(company_id,user_id):
                   [Single Donor Platelet, Platelet Concentrate, Packed Red Cells, Whole Human Blood, Platelet Rich Plasma, Fresh Frozen Plasma, Cryo Precipitate] 
                 - current time for Time based fields: {get_current_datetime()}
                        
-Clarify with a friendly, helpful message listing a few valid options. Do not assume or auto-correct silently.
- """.strip()
+            Clarify with a friendly, helpful message listing a few valid options. Do not assume or auto-correct silently.
+            """.strip()
             
             
             full_prompt = [
@@ -341,6 +342,26 @@ Clarify with a friendly, helpful message listing a few valid options. Do not ass
         data=graphql_client.run_query(query)
         state["nodes"].append("run_graphql_query")
         state["time"].append(store_datetime())
+        
+        if data is None:
+            logger.error("run_graphql_query: Failed to run GraphQL query.")
+            data = {"error": "Failed to fetch the data. Please try again later."}
+        if "blood_order_view" in data:
+            formatted_data = format_toon(data["blood_order_view"])
+            summary_data = summary_toon(data["blood_order_view"])
+            data = {
+                "Data": formatted_data,
+                "summary_data": summary_data
+            }
+        elif "cost_and_billing_view" in data:
+            formatted_data = format_toon(data["cost_and_billing_view"])
+            summary_data = summary_toon(data["cost_and_billing_view"])
+            data = {
+                "Data": formatted_data,
+                "summary_data": summary_data
+            }
+        
+
 
         return {
             "messages": state["messages"] + [AIMessage(content=json.dumps(data), additional_kwargs={"tag": "run_graphql_query"})],

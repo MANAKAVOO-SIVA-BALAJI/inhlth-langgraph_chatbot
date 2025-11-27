@@ -177,8 +177,7 @@ def blood_build_graph(company_id,user_id):
             )
             # print("input_message: ",input_message)
 
-            response = llm_bind_tool.invoke([blood_System_query_prompt_format] + state["messages"] + [input_message]
-)
+            response = llm_bind_tool.invoke([blood_System_query_prompt_format] + state["messages"] + [input_message])
             # response = llm_bind_tool.invoke([blood_System_query_prompt_format] +["User question :"+ state["messages"] +"\n"+ last_message.content])
             # print("state[messages]:", state["messages"])
         else:

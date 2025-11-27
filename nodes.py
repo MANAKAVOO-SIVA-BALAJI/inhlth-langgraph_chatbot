@@ -104,7 +104,7 @@ def data_analyser(state: AgentState):
     try:
         rephrased_question = json.loads(state["intent_planner_response"][0]).get("rephrased_question","")
         user_message= rephrased_question if rephrased_question else state["messages"][0]
-        response = llm.invoke([system_data_analysis_prompt_format]+["User question : ",user_message,"Data : "+str(state["messages"][-1].content)+"Response: "])
+        response = llm.invoke([system_data_analysis_prompt_format]+["User question : "+user_message,"Data : "+str(state["messages"][-1].content)+"Response: "])
 
     except Exception as e:
         logger.error(f"data_analyser error: {e}")

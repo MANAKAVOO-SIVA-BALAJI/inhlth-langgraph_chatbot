@@ -184,12 +184,12 @@ class HasuraMemory:
         records_cache = memory_cache.get_history(self.user_id)
         if records_cache:
             return records_cache
-
+        #limit: 30 to reduce the payload size
         graphql_query = """
         query MyQuery($thread_id: String) {
             chat_messages(
                 where: {session_id: {_eq: $thread_id}, sender_type: {_in: ["user","final_response"]}},
-                limit: 4
+                limit: 50
             ) {
                 messages
             }

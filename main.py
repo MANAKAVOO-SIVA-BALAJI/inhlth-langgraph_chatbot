@@ -81,11 +81,11 @@ class ChatRequest(UserInfo):
     @field_validator("session_id")
     def validate_session_id(cls, v):
         """
-        Validator to ensure session ID is not empty.
+        Validator to ensure session ID is not empty. If an old session ID is provided, it's considered valid.
         """
-        if v !=get_session_id():
-            logger.error("Invalid session id")
-            raise ValueError("invalid session id")
+        if not v.strip():
+            raise ValueError("Session ID cannot be empty")
+        # No longer checking if session ID matches current date, allowing session persistence
         return v
     
         
@@ -291,7 +291,8 @@ async def health_check():
             "normal_chat": "/ai_assistant/chat",
             "history": "/ai_assistant/get_session_messages",
             "health": "/ai_assistant/health",
-            "test": "/ai_assistant"
+            "test": "/ai_assistant",
+            "last updated":"2025-11-27"
         }
     }
 
@@ -320,7 +321,7 @@ async def feedback_endpoint(req: FeedbackRequest):
         print(f"Error creating feedback: {e}")
         return {"response": "Failed to add feedback."}
 
-    return {"response": "Feedback added successfully!"}
+    return {"response": "Feedback added successfully!", "last updated":"2025-11-27"}
 
 @app.post("/chat")
 async def chat_endpoint(req: ChatRequest):
