@@ -15,7 +15,7 @@ from langchain_core.messages import (  # type: ignore
 )
 
 from cache import memory_cache
-from logging_config import setup_logger
+from config.logging_config import setup_logger
 
 logger = setup_logger()
 

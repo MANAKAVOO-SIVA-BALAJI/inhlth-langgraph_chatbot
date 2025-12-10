@@ -12,10 +12,10 @@ from langchain_core.messages import (  # type: ignore
 )
 from langgraph.graph import END, StateGraph  # type: ignore
 
-from config import HASURA_ADMIN_SECRET, HASURA_GRAPHQL_URL, HASURA_ROLE
-from graphql_memory import HasuraMemory
-from logging_config import setup_logger
-from nodes import (
+from config.config import HASURA_ADMIN_SECRET, HASURA_GRAPHQL_URL, HASURA_ROLE
+from hasura.graphql_memory import HasuraMemory
+from config.logging_config import setup_logger
+from hospital.nodes import (
     AgentState,
     clarify,
     data_analyser,
@@ -24,9 +24,10 @@ from nodes import (
     llm,
     should_continue,
 )
-from prompt import system_intent_prompt, system_query_prompt_format , system_intent_prompt2 ,System_query_validation_prompt
+from hospital.prompt import system_intent_prompt, system_query_prompt_format , system_intent_prompt2 ,System_query_validation_prompt
 from utils import store_datetime ,get_current_datetime
-from toon_formatter import format_toon  ,summary_toon
+from summary_generator import format_toon  ,summary_toon
+from toon_format import encode , decode
 
 logger = setup_logger()
 
@@ -347,14 +348,14 @@ def build_graph(company_id,user_id):
             logger.error("run_graphql_query: Failed to run GraphQL query.")
             data = {"error": "Failed to fetch the data. Please try again later."}
         if "blood_order_view" in data:
-            formatted_data = format_toon(data["blood_order_view"])
+            formatted_data = encode(data["blood_order_view"])
             summary_data = summary_toon(data["blood_order_view"])
             data = {
                 "Data": formatted_data,
                 "summary_data": summary_data
             }
         elif "cost_and_billing_view" in data:
-            formatted_data = format_toon(data["cost_and_billing_view"])
+            formatted_data = encode(data["cost_and_billing_view"])
             summary_data = summary_toon(data["cost_and_billing_view"])
             data = {
                 "Data": formatted_data,

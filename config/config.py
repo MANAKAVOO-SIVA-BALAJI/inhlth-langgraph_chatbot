@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
-from logging_config import setup_logger
+from config.logging_config import setup_logger
 
 logger = setup_logger()
 

@@ -12,10 +12,10 @@ from langchain_core.messages import (  # type: ignore
 )
 from langgraph.graph import END, StateGraph  # type: ignore
 
-from config import HASURA_ADMIN_SECRET, HASURA_GRAPHQL_URL, HASURA_ROLE
-from graphql_memory import HasuraMemory
-from logging_config import setup_logger
-from blood_nodes import (
+from config.config import HASURA_ADMIN_SECRET, HASURA_GRAPHQL_URL, HASURA_ROLE
+from hasura.graphql_memory import HasuraMemory
+from config.logging_config import setup_logger
+from blood_bank.blood_nodes import (
     AgentState,
     clarify,
     data_analyser,
@@ -24,7 +24,7 @@ from blood_nodes import (
     llm,
     should_continue,
 )
-from blood_prompt import blood_system_intent_prompt, blood_System_query_prompt_format , blood_system_intent_prompt2
+from blood_bank.blood_prompt import blood_system_intent_prompt, blood_System_query_prompt_format , blood_system_intent_prompt2
 from utils import store_datetime ,get_current_datetime
 
 logger = setup_logger()

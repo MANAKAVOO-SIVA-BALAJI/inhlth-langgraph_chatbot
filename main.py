@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 from langsmith import trace, Client
 
 from chat import generate_chat_response
-from config import (
+from config.config import (
     APP_DEBUG,
     HASURA_ADMIN_SECRET,
     HASURA_GRAPHQL_URL,
@@ -23,8 +23,8 @@ from config import (
     LANGCHAIN_ENDPOINT,
     LANGCHAIN_TRACING_V2,
 )
-from graphql_memory import HasuraMemory
-from logging_config import setup_logger
+from hasura.graphql_memory import HasuraMemory
+from config.logging_config import setup_logger
 from utils import get_current_datetime, get_message_unique_id, get_session_id, store_datetime
 
 logger = setup_logger()
